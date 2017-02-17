@@ -63,7 +63,7 @@ class BaseSphericalAlignment(object):
         nu = abs(m1s+m2s)
         s = Js - (mu + nu)/2
         xi = np.ones_like(s)
-        xi[m2s<m1s] = (-1)**(m2s-m1s)[m2s<m1s]
+        xi[m2s<m1s] = (-1)**(m1s-m2s)[m2s<m1s]
         factor = sqrt(factorial(s)*factorial(s+mu+nu)/
                           factorial(s+mu)/factorial(s+nu)) * xi
         jac = eval_jacobi(s, mu, nu, cosb)
@@ -169,8 +169,13 @@ class BaseSphericalAlignment(object):
     ##
     def findRotations(self, Ilmm, nrot=10, width=2):
         overlap = self.soft.iSOFT(Ilmm).real
-        peaks, amplitude, mean, sigma, f = findPeaks(overlap, npeaks=nrot, width=width)
-        return self.soft.indtoEuler(peaks), amplitude, mean, sigma, f
+        peaks = []
+        while len(peaks)==0:
+            peaks, amplitude, mean, sigma, f = findPeaks(overlap, 
+                                                         npeaks=nrot, 
+                                                         width=width)
+            width += 1
+        return np.atleast_2d(self.soft.indtoEuler(peaks)), amplitude, mean, sigma, f
     ##
     def malign(self, pos1, pos2, perm=None, invert=True, calcCoeffs=None, nrot=10):
         X1, X2 = self.COM_shift(pos1, pos2)
@@ -441,8 +446,7 @@ class VarSphericalHarmonicAlign(SphericalHarmonicAlign):
                                            r[None,None,:],
                                            scale[None,None,:],
                                            self.harmscale) ** scale[None,None,:]**-0.5
-        dnlj = np.einsum("nls,slj->nlj",self.coeffs, dslj)
-        cnlm = np.einsum("nlj,lmj->nlm", dnlj, Y.conj())
+        cnlm = np.einsum("nls,slj,lmj->nlm",self.coeffs, dslj, Y.conj())
         return cnlm
         
 if  __name__ == '__main__':

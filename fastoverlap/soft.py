@@ -61,7 +61,7 @@ class SOFT(object):
         nu = abs(m1s+m2s)
         s = Js - (mu + nu)/2
         xi = np.ones_like(s)
-        xi[m2s<m1s] = (-1)**(m2s-m1s)[m2s<m1s]
+        xi[m2s<m1s] = (-1)**(m1s-m2s)[m2s<m1s]
         factor = sqrt(factorial(s)*factorial(s+mu+nu)/
                       factorial(s+mu)/factorial(s+nu)) * xi
         jac = eval_jacobi(s[:,None], mu[:,None], nu[:,None],
