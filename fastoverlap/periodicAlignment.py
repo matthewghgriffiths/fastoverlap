@@ -392,12 +392,12 @@ class PeriodicAlign(BasePeriodicAlignment):
     ##
     def findDisps(self, pos1, pos2, Cs=None):
         self.setPos(pos1, pos2, Cs)
-        disp = findMax(self.fabs) * self.boxvec
+        disp = findMax(self.fabs) * self.boxvec / self.fabs.shape
         return disp[None,:]
     ##
     def align(self, pos1, pos2, Cs=None):
         disps = self.findDisps(pos1, pos2, Cs)
-        return align.refine(pos1, pos2, disps)
+        return self.refine(pos1, pos2, disps)
     ##
     def alignGroup(self, coords, keepCoords=False):
         n = len(coords)
