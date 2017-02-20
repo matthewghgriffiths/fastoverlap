@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+import os
 import csv
 import numpy as np
 from fastoverlap import SphericalAlign, SphericalHarmonicAlign
@@ -45,3 +45,6 @@ if __name__ == "__main__":
                      setup="import alignSpherical as salign")  
     harmtime =  harmTimer.timeit(10)/10.
         
+    print 'Average time to align for fastoverlap {:0.3} s'.format(aligntime)
+    print 'Average time to align for harmonics basis {:0.3} s'.format(harmtime)
+     

@@ -2,9 +2,7 @@
 
 import os
 import csv
-
 import numpy as np
-
 from fastoverlap import PeriodicAlign
 
 datafolder = "BLJ256/"
