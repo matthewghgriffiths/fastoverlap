@@ -33,5 +33,5 @@ $ python setup.py install [--user]
 Building in place (note PYTHONPATH must then be modified)
 
 ```
-python setup.py build_ext -i --fcompiler=gfortran
+$ python setup.py build_ext -i --fcompiler=gfortran
 ```
