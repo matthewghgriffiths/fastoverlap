@@ -447,8 +447,8 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         coordsa = pos2.flatten()
         args = (coordsb, coordsa,True,
                 self.boxVec[0],self.boxVec[1],self.boxVec[2],False,False,ndisps)
-        dist, dist2, disp, disps = fast.bulkfastoverlap.align(*args)
-        return dist, coordsb.reshape(pos1.shape), coordsa.reshape(pos2.shape), disp
+        dist, dist2, disp, perm, disps = fast.bulkfastoverlap.align(*args)
+        return dist, coordsb.reshape(pos1.shape), coordsa.reshape(pos2.shape), perm, disp
     
 if __name__ == "__main__":
     print 'testing alignment on example data, distance should = 1.559'
