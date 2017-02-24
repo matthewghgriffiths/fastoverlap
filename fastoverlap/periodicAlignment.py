@@ -4,15 +4,19 @@ Created on 19 Jan 2017
 @author: mg542
 '''
 
-import os
 from itertools import product, combinations_with_replacement, chain, izip
-import csv
 
 import numpy as np
 from numpy.linalg import norm
 from scipy import median
 
 from utils import find_best_permutation, findMax, _next_fast_len
+
+try:
+    import fastoverlap_f as fast
+    have_fortran=True
+except ImportError:
+    have_fortran=False
 
 class BasePeriodicAlignment(object):
     def findDisps(self, pos1, pos2):
@@ -416,19 +420,49 @@ class PeriodicAlign(BasePeriodicAlignment):
             return dists, aligned
         else:
             return dists
+            
+class PeriodicAlignFortran(BasePeriodicAlignment):
+    ##
+    def __init__(self, Natoms, boxVec, permlist=None, dim=3, 
+                 scale=None, maxk=None):       
+        self.Natoms = Natoms
+        self.boxVec = np.array(boxVec, dtype=float)
+        self.dim = dim
+        if permlist is None:
+            self.setPerm([np.arange(self.Natoms)])
+        else:
+            self.setPerm(permlist)
+    ##
+    def setPerm(self, perm):
+        self.perm = perm
+        self.nperm = len(permlist)
+        self.npermsize = map(len, permlist)
+        self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in permlist])
+        fast.bulkfastoverlap.initialise(self.Natoms, self.permgroup, self.npermsize)
+    ##
+    def align(self, pos1, pos2, ndisps=10, perm=None):
+        if perm is not None:
+            self.setPerm(perm)
+        coordsb = pos1.flatten()
+        coordsa = pos2.flatten()
+        args = (coordsb, coordsa,True,
+                self.boxVec[0],self.boxVec[1],self.boxVec[2],False,False,ndisps)
+        dist, dist2, disp, disps = fast.bulkfastoverlap.align(*args)
+        return dist, coordsb.reshape(pos1.shape), coordsa.reshape(pos2.shape), disp
     
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
-    import seaborn as sns
-    from os.path import join
-    from importDatabases import importDatabases, importIndexes, getDatabaseFileNames
+    print 'testing alignment on example data, distance should = 1.559'
+    import os
+    import csv
+    datafolder = "../examples/BLJ256"
+    def readFile(filename):
+        with open(filename, 'rb') as f:
+            reader = csv.reader(f, delimiter=' ')
+            dist = [map(float, row) for row in reader]
+        return np.array(dist)
     
-    filepath = os.path.realpath(__file__)
-    datapath = join(filepath, 'distance_matrices3')
-    datapath = '/home/mg542/Dropbox/Documents/Cambridge/HOTBOT/Source/Alignment/distance_matrices3'
-    dbs = importDatabases()
-    indexes = importIndexes()
+    pos1 = readFile(os.path.join(datafolder, 'coords'))
+    pos2 = readFile(os.path.join(datafolder, 'finish'))
     
     natoms = 256
     ntypeA = 204
@@ -437,47 +471,24 @@ if __name__ == "__main__":
     permlist = [np.arange(ntypeA), np.arange(ntypeA, natoms)]
     overlap = PeriodicAlign(256, boxSize, permlist)
     align = FourierAlign(256, boxSize, permlist)
-    
-    def alignDatabase(db, method, q=None):
-        minima = sorted(db.minima(), key=lambda m: m.id())
-        dists = np.zeros((len(minima), len(minima)))
-        for i, x in enumerate(minima):
-            #print i,
-            for j, y in enumerate(minima):
-                dist = method(x.coords.reshape(shape), y.coords.reshape(shape))[0]
-                dists[i,j] = dist
-                #if j%10==0:
-                    #print j,
-            #print ""
-        if q is not None:
-            q.put(dists)
-            q.close()
-        else:
-            return dists
+    if have_fortran:
+        overlap_f = PeriodicAlignFortran(256, boxSize, permlist)
         
-    def readFile(filename):
-        dists = np.empty((100,100), float)
-        with open(filename, 'rb') as f:
-            reader = csv.reader(f, delimiter=' ')
-            for i, j, ei, ej, dist in reader:
-                dists[int(i)-1, int(j)-1] = np.float(dist)
-        return dists
-        
-    minima0 = sorted(dbs[0].minima(), key=lambda m: m.id())
-    coords0 = np.array([m.coords.reshape(shape) for m in minima0])
-    minima13 = sorted(dbs[13].minima(), key=lambda m: m.id())
-    coords13 = [m.coords.reshape(shape) for m in minima13]
+    print 'PeriodicAlign aligment:', overlap(pos1, pos2)[0]
+    if have_fortran:
+        print 'PeriodicAlignFortran aligment:', overlap_f(pos1, pos2)[0]
     
-    print overlap.align(coords13[3], coords13[30])[0],
-    print overlap.refine(coords0[3], coords0[30], disps=np.zeros(3))[0]
-    
-    print overlap.align(coords13[3], coords13[4])[0],
-    print overlap.refine(coords0[3], coords0[4], disps=np.zeros(3))[0],
-    
-    Cs = [overlap.calcFourierCoeff(p) for p in (coords13[3], coords13[4])]
-    print overlap.align(coords13[3], coords13[4], Cs)[0]
-    
+    import timeit
+
+    print 'Timing python implementation'
+    print  timeit.timeit("overlap(pos1, pos2)", setup="from __main__ import overlap, pos1, pos2")    
+    if  have_fortran:
+        print 'Timing Fortran implementation'
+        print  timeit.timeit("overlap_f.align(pos1, pos2,1)", setup="from __main__ import overlap_f, pos1, pos2")    
     """
     Testing Run time in Ipython
     %prun dists, aligned = overlap.alignGroup(coords13, True)
     """
+        
+        
+        

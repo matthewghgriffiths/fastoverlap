@@ -30,6 +30,8 @@ If it can't import the code from pele, manually redefine needed functions
 these functions are direct copies from pele
 """
 
+
+
 try:
     from pele.mindist.rmsfit import findrotation
     from pele.mindist import find_best_permutation
@@ -256,6 +258,7 @@ except ImportError:
         RMX[1, 2] = 2. * (Q3Q4 - Q1Q2)
         RMX[2, 1] = 2. * (Q3Q4 + Q1Q2)
         return RMX
+    
 
 def _next_fast_len(target):
     if target <= 6:

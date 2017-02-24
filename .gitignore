@@ -1,8 +1,13 @@
 # Compiled python modules.
 *.pyc
+*.so
 
 # Setuptools distribution folder.
 /dist/
+
+# Spyder stuff
+/build/
+.spyderproject
 
 # Python egg metadata, regenerated from source files by setuptools.
 /*.egg-info
