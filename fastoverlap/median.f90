@@ -1,3 +1,7 @@
+! Code from Alan Miller released into the public domain
+! http://jblevins.org/mirror/amiller/ 2017-2-24
+
+
 PROGRAM t_median
 
 IMPLICIT NONE
