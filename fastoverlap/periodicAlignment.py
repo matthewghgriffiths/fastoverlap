@@ -435,9 +435,9 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
     ##
     def setPerm(self, perm):
         self.perm = perm
-        self.nperm = len(permlist)
-        self.npermsize = map(len, permlist)
-        self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in permlist])
+        self.nperm = len(perm)
+        self.npermsize = map(len, perm)
+        self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
         fast.bulkfastoverlap.initialise(self.Natoms, self.permgroup, self.npermsize)
     ##
     def align(self, pos1, pos2, ndisps=10, perm=None):
