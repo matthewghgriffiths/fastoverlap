@@ -79,8 +79,8 @@ class BasePeriodicAlignment(object):
         dist = self.get_dist(X1, X2[permlist])
         return dist, permlist
     ##
-    def __call__(self, pos1, pos2):
-        return self.align(pos1, pos2)
+    def __call__(self, pos1, pos2, *args, **kwargs):
+        return self.align(pos1, pos2, *args, **kwargs)
 
 class FourierAlign(BasePeriodicAlignment):
     """
