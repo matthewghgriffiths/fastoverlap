@@ -478,13 +478,15 @@ if __name__ == "__main__":
     if have_fortran:
         print 'PeriodicAlignFortran aligment:', overlap_f(pos1, pos2)[0]
     
-    import timeit
 
+    """
+    import timeit
     print 'Timing python implementation'
     print  timeit.timeit("overlap(pos1, pos2)", setup="from __main__ import overlap, pos1, pos2")    
     if  have_fortran:
         print 'Timing Fortran implementation'
         print  timeit.timeit("overlap_f.align(pos1, pos2,1)", setup="from __main__ import overlap_f, pos1, pos2")    
+    """
     """
     Testing Run time in Ipython
     %prun dists, aligned = overlap.alignGroup(coords13, True)
