@@ -1,8 +1,30 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Fri Feb 17 12:45:15 2017
 
-@author: mg542
+"""
+    FASTOVERLAP
+    Copyright (C) 2017  Matthew Griffiths
+    
+    This program is free software; you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation; either version 2 of the License, or
+    (at your option) any later version.
+    
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+    
+    You should have received a copy of the GNU General Public License along
+    with this program; if not, write to the Free Software Foundation, Inc.,
+    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+    This code is a FORTRAN reimplementation of the SOFT C++ library from
+    http://www.cs.dartmouth.edu/~geelong/soft/ under the GNU GPL licence
+
+    Citation:
+    Kostelec, P. J., & Rockmore, D. N. (2008). FFTs on the rotation group. 
+    Journal of Fourier Analysis and Applications, 14(2), 145–179. 
+    http://doi.org/10.1007/s00041-008-9013-5
 """
 
 import numpy as np
@@ -67,7 +89,8 @@ class SOFT(object):
         jac = eval_jacobi(s[:,None], mu[:,None], nu[:,None],
                      cosb[None,:])
         Dfull[Js[:,None],m1s[:,None],m2s[:,None],
-              bws[None,:]] = (factor[:,None] * jac *
+              bws[None,:]] = (((2.*Js[:,None]+1.)/2.)**0.5 *
+                              factor[:,None] * jac *
                               sinb2[None,:] ** mu[:,None] * 
                               cosb2[None,:] ** nu[:,None])
         return Dfull
