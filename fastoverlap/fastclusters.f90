@@ -28,13 +28,15 @@
 !    ISBN: 0-471-11963-6,
 !    LC: QA351.C45.
 
+
+INCLUDE "fastutils.f90"
+
 ! Including functions used to calculate orthogonal polynomials
-INCLUDE "polynomials.f90"
+!INCLUDE "polynomials.f90"
 
 ! Module for performing discrete SO(3) transforms, depends on fftw.
 INCLUDE "DSOFT.f90"
 
-INCLUDE "utils.f90"
 
 MODULE CLUSTERFASTOVERLAP
 
@@ -123,6 +125,29 @@ ENDDO
 
 END SUBROUTINE HARMONICNL
 
+SUBROUTINE LEGENDREL(PP,PM,PLMS,Z,L)
+! Calculates values of Associated Legendre polynomial between
+! P^{L-1}_L -> P^{-L+1}_L
+! With PP = P^L_L and PM = P^{-L}_L
+! Does this by solving a two term recurrence relation with PP and PM specifying
+! the boundary conditions
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: L
+DOUBLE PRECISION, INTENT(IN) :: PP, PM, Z
+DOUBLE PRECISION, INTENT(OUT) :: PLMS(2*L-1)
+
+DOUBLE PRECISION :: D(2*L-1), DU(2*L-2), DL(2*L-2)
+INTEGER INFO, J
+
+DO J=0,2*L-2
+    
+ENDDO
+
+
+END SUBROUTINE LEGENDREL
+
 SUBROUTINE RYLM(COORD, R, YLM, L)
 
 ! Calculates the Spherical Harmonics associated with coordinate COORD
@@ -150,6 +175,13 @@ Z = COORD(3)/R
 YLM = CMPLX(0.D0,0.D0, 8)
 YLM(0,0) = (4*PI)**-0.5
 
+! Calculating Factorials
+FACTORIALS(0) = 1.D0
+DO M=1,2*L
+    FACTORIALS(M) = M*FACTORIALS(M-1)
+ENDDO
+
+
 ! Initialising Recurrence for Associated Legendre Polynomials
 DO J=0, L-1
     YLM(J+1,J+1) = RLEGENDREL0(J, Z) * YLM(J,J) !* ((2.D0*J+3,D0)/(2.D0*J+1.D0)/(2.D0*J+1.D0)/(2.D0*J+2.D0))
@@ -169,12 +201,6 @@ ENDDO
 DO M=-L,L
     INDM0 = MODULO(M, 2*L+1)
     EXPIM(INDM0) = EXP(CMPLX(0.D0, M*PHI, 8))
-ENDDO
-
-! Calculating Factorials
-FACTORIALS(0) = 1.D0
-DO M=1,2*L
-    FACTORIALS(M) = M*FACTORIALS(M-1)
 ENDDO
 
 ! Calculate Spherical Harmonics
@@ -520,16 +546,59 @@ ENDDO
 
 END SUBROUTINE FOURIERCOEFFSMEM
 
-SUBROUTINE CALCOVERLAP(IMML, OVERLAP, L)
+SUBROUTINE CALCOVERLAP(IMML, OVERLAP, L, ILMM)
 USE DSOFT, ONLY : ISOFT
 
 IMPLICIT NONE
-
 INTEGER, INTENT(IN) :: L
 COMPLEX*16, INTENT(IN) :: IMML(-L:L,-L:L,0:L)
 COMPLEX*16, INTENT(OUT) :: OVERLAP(2*L+2,2*L+2,2*L+2)
 
+COMPLEX*16, INTENT(OUT) :: ILMM(0:L,0:2*L,0:2*L)
+INTEGER I,J,M1,M2, NJ
+INTEGER*8 BW
+
+! Convert array into format usable by DSOFT:
+BW = INT(L+1,8)
+NJ = 2*L + 1
+
+ILMM = CMPLX(0.D0, 0.D0, 8)
+DO J=0,L
+    ILMM(J,0,0) = IMML(0,0,J)
+    DO M2=1,J
+        ILMM(J,0,M2) = IMML(0,M2,J)
+        ILMM(J,0,NJ-M2) = IMML(0,-M2,J)
+        ILMM(J,M2,0) = IMML(M2,0,J)
+        ILMM(J,NJ-M2,0) = IMML(-M2,0,J)
+        DO M1=1,J
+            ILMM(J,M1,M2) = IMML(M1,M2,J)
+            ILMM(J,NJ-M1,M2) = IMML(-M1,M2,J)
+            ILMM(J,M1,NJ-M2) = IMML(M1,-M2,J)
+            ILMM(J,NJ-M1,NJ-M2) = IMML(-M1,-M2,J)
+        ENDDO
+    ENDDO
+ENDDO
+
+!write(*,*) SHAPE(ILMM)
+!write(*,*) SHAPE(OVERLAP)
+!write(*,*) BW
+CALL ISOFT(ILMM, OVERLAP, BW)
+
 END SUBROUTINE CALCOVERLAP
+
+SUBROUTINE ALIGN(COORDSB,COORDSA,NATOMS,DEBUG,DISTANCE,DIST2,RMATBEST,NDISPS)
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NATOMS, NDISPS
+! These currently aren't used, but are included to match call signature of minpermdist
+LOGICAL, INTENT(IN) :: DEBUG!, TWOD, RIGID
+DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
+DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2, RMATBEST(3,3)
+
+CALL MINPERMDIST(COORDSB,COORDSA,NATOMS,DEBUG,0.D0,0.D0,0.D0,.FALSE.,.FALSE.,DISTANCE,DIST2,.FALSE.,RMATBEST)
+
+END SUBROUTINE ALIGN
 
 END MODULE CLUSTERFASTOVERLAP
 

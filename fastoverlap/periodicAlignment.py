@@ -13,7 +13,7 @@ from scipy import median
 from utils import find_best_permutation, findMax, _next_fast_len
 
 try:
-    import fastoverlap_f as fast
+    import fastbulk as fast
     have_fortran=True
 except ImportError:
     have_fortran=False

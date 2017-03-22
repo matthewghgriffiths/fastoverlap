@@ -329,7 +329,7 @@ ENDDO
 
 CALL DFFTW_DESTROY_PLAN_(PLAN)
 
-ENDSUBROUTINE ISOFT
+END SUBROUTINE ISOFT
 
 ! TODO Implement version of these algorithms that take advantage of the symmetries
 ! imposed by a real input array.

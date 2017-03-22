@@ -62,7 +62,7 @@
 !       p,q: Coordinate vectors (n particles)
 !       s  : Box lengths (or dummy if open B.C.)
 !       pbc: Periodic boundary conditions?
-      integer*8, intent(in) :: n
+      integer, intent(in) :: n
       double precision, intent(in) :: p(3*n), q(3*n), sx, sy, sz
       logical, intent(in) :: pbc
       double precision s(3)
@@ -71,7 +71,7 @@
 !       perm: Permutation so that p(i) <--> q(perm(i))
 !       dist: Minimum attainable distance
 !     We have
-      integer*8, intent(out) :: perm(n)
+      integer, intent(out) :: perm(n)
       double precision, intent(out) :: dist, worstdist, worstradius
       double precision DUMMY
       
@@ -79,7 +79,7 @@
 !       scale : Precision
 !       maxnei: Maximum number of closest neighbours
       double precision scale
-      integer*8 maxnei
+      integer maxnei
 
       parameter (scale = 1.0d6   )
       parameter (maxnei = 60     )
@@ -95,13 +95,14 @@
 !       Matrix elements of row i
       integer*8 kk(n*maxnei), first(n+1), x(n), y(n)
       integer*8 cc(n*maxnei), u(n), v(n), h
-      integer*8   m, i, j, k, l, l2, t, a
+      integer   m, i, j, k, l, l2, t, a
       integer*8 n8, sz8, d
-      integer*8 J1
+      integer J1
 
 !     Distance function
       double precision permdist
 
+    
       s(1)=sx
       s(2)=sy
       s(3)=sz
@@ -224,6 +225,7 @@
 
 !     Call bipartite matching routine
       call jovosap(n8, sz8, cc, kk, first, x, y, u, v, h)
+
 
       if(h .lt. 0) then
 !     If initial guess correct, deduce solution distance
