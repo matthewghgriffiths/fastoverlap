@@ -228,28 +228,37 @@ DOUBLE PRECISION, INTENT(OUT) :: R
 COMPLEX*16, INTENT(OUT) :: YML(-L:L,0:L)
 
 INTEGER J, M, INDM1, INDM0, INDM2
-DOUBLE PRECISION THETA, PHI, Z, FACTORIALS(0:2*L)
+DOUBLE PRECISION THETA, PHI, Z, FACTORIALS(0:2*L), SQRTZ, SQRTMJ
 COMPLEX*16 EXPIM(-L:L)
-DOUBLE PRECISION, EXTERNAL :: RLEGENDREL0, RLEGENDREM0, RLEGENDREM1
 
 
 R = (COORD(1)**2+COORD(2)**2+COORD(3)**2)**0.5
 PHI = ATAN2(COORD(2), COORD(1))
 Z = COORD(3)/R
+SQRTZ = SQRT(1.D0-Z**2)
+
+! Calculating Factorials
+FACTORIALS(0) = 1.D0
+DO J=1,2*L
+    FACTORIALS(J) = J*FACTORIALS(J-1)
+ENDDO
 
 !Calculating Associate Legendre Function
 YML = CMPLX(0.D0,0.D0, 8)
 YML(0,0) = (4*PI)**-0.5
 
 ! Initialising Recurrence for Associated Legendre Polynomials
+! Calculating normalised Legendre Polynomials for better numerical stability
+! Pnorm^m_l = \sqrt{(l-m)!/(l+m)!} P^m_l
 DO J=0, L-1
-    YML(J+1,J+1) = RLEGENDREL0(J, Z) * YML(J,J) !* ((2.D0*J+3,D0)/(2.D0*J+1.D0)/(2.D0*J+1.D0)/(2.D0*J+2.D0))
+    YML(J+1,J+1) = - SQRT((2.D0*J+1.D0)/(2.D0*J+2.D0)) * SQRTZ* YML(J,J)
 ENDDO
 
-! Recurrence for Associated Legendre Polynomials
+! Recurrence for normalised Associated Legendre Polynomials
 DO J=1,L
     DO M=J,-J+1,-1
-        YML(M-1, J) = RLEGENDREM0(M,J,Z) * YML(M, J) + RLEGENDREM1(M,J,Z) * YML(M+1,J)
+        SQRTMJ = SQRT((J+M)*(J-M+1.D0))
+        YML(M-1, J) = -2*M*Z/SQRTMJ/SQRTZ * YML(M, J) - SQRT((J-M)*(J+M+1.D0))/SQRTMJ * YML(M+1,J)
     ENDDO
 ENDDO
 
@@ -258,18 +267,13 @@ DO M=-L,L
     EXPIM(M) = EXP(CMPLX(0.D0, M*PHI, 8))
 ENDDO
 
-! Calculating Factorials
-FACTORIALS(0) = 1.D0
-DO J=1,2*L
-    FACTORIALS(J) = J*FACTORIALS(J-1)
-ENDDO
+
 
 ! Calculate Spherical Harmonics
 DO J=1,L
     DO M=-J,J
         INDM0 = MODULO(M, 2*L+1)
-        ! Could probably calculate the prefactor through another recurrence relation...
-        YML(M,J) = EXPIM(M)*YML(M,J) * ((2.D0*J+1.D0)*FACTORIALS(J-M)/FACTORIALS(J+M))**0.5
+        YML(M,J) = EXPIM(M)*YML(M,J) * SQRT((2.D0*J+1.D0))
     ENDDO
 ENDDO
 
@@ -579,12 +583,65 @@ DO J=0,L
     ENDDO
 ENDDO
 
-!write(*,*) SHAPE(ILMM)
-!write(*,*) SHAPE(OVERLAP)
-!write(*,*) BW
 CALL ISOFT(ILMM, OVERLAP, BW)
 
 END SUBROUTINE CALCOVERLAP
+
+SUBROUTINE FINDROTATIONS(OVERLAP, L, ANGLES, ROTMS, NROTATIONS)
+USE FASTOVERLAPUTILS, ONLY: FINDPEAKS
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: L
+INTEGER, INTENT(INOUT) :: NROTATIONS
+DOUBLE PRECISION, INTENT(IN) :: OVERLAP(2*L+2,2*L+2,2*L+2)
+DOUBLE PRECISION, INTENT(OUT) :: ANGLES(NROTATIONS,3), ROTMS(3,3,NROTATIONS)
+
+DOUBLE PRECISION AMPLITUDES(NROTATIONS), CONVERT
+INTEGER J
+
+CALL FINDPEAKS(OVERLAP, ANGLES, AMPLITUDES, NROTATIONS)
+
+! Convert index locations to Euler Angles
+CONVERT = PI / (2*L+2)
+ANGLES(:NROTATIONS,1) = ANGLES(:NROTATIONS,1) * 2 * CONVERT
+ANGLES(:NROTATIONS,2) = (ANGLES(:NROTATIONS,2)+0.5D0) * CONVERT
+ANGLES(:NROTATIONS,3) = ANGLES(:NROTATIONS,3) * 2 * CONVERT
+
+DO J=0,NROTATIONS
+    CALL EULERM(ANGLES(J,1),ANGLES(J,2),ANGLES(J,3),ROTMS(:,:,J))
+ENDDO
+
+END SUBROUTINE FINDROTATIONS
+
+SUBROUTINE EULERM(A,B,G,ROTM)
+! Calculates rotation matrix of the Euler angles A,B,G
+IMPLICIT NONE
+
+DOUBLE PRECISION, INTENT(IN) :: A,B,G
+DOUBLE PRECISION, INTENT(OUT) :: ROTM(3,3)
+
+DOUBLE PRECISION  COSA, SINA, COSB, SINB, COSG, SING
+
+COSA = COS(A)
+SINA = SIN(A)
+COSB = COS(B)
+SINB = SIN(B)
+COSG = COS(G)
+SING = SIN(G)
+
+  !compute rotation matrix into geographical coordinates
+  ROTM (1,1) =   COSG * COSB * COSA  -  SING * SINA
+  ROTM (1,2) = - SING * COSB * COSA  -  COSG * SINA
+  ROTM (1,3) =          SINB * COSA
+  ROTM (2,1) =   COSG * COSB * SINA  +  SING * COSA
+  ROTM (2,2) = - SING * COSB * SINA  +  COSG * COSA
+  ROTM (2,3) =          SINB * SINA
+  ROTM (3,1) = - COSG * SINB
+  ROTM (3,2) =   SING * SINB
+  ROTM (3,3) =          COSB
+
+END SUBROUTINE EULERM
 
 SUBROUTINE ALIGN(COORDSB,COORDSA,NATOMS,DEBUG,DISTANCE,DIST2,RMATBEST,NDISPS)
 

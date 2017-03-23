@@ -27,6 +27,20 @@ commons = fastclusters.commons
 clus = fastclusters.clusterfastoverlap
 #from clusters import clusterfastoverlap as clus
 
+import os
+import csv
+datafolder = "../examples/LJ38"
+def readFile(filename):
+    with open(filename, 'rb') as f:
+        reader = csv.reader(f, delimiter=' ')
+        dist = [map(float, row) for row in reader]
+    return np.array(dist)
+
+pos1 = readFile(os.path.join(datafolder, 'coords'))
+pos2 = readFile(os.path.join(datafolder, 'finish'))
+
+natoms = 38
+
 
 def rollaxes(a, axes=0):
     try:
@@ -45,8 +59,6 @@ r0 = 1.0
 sigma = 0.3
 sph = SphericalHarmonicAlign(sigma, r0, n, l)
 
-pos1 = (np.random.random((30,3))-0.5)*3
-pos2 = (np.random.random((30,3))-0.5)*3
 
 c1nlm = clus.harmoniccoeffs(pos1.flatten(),n,l,r0,sigma)
 c2nlm = clus.harmoniccoeffs(pos2.flatten(),n,l,r0,sigma)
@@ -112,7 +124,7 @@ Ilmm = np.einsum("ijk,ilj,imk->ilm",il,Y1,Y2) * 4 * np.pi**2.5 * self.scale**3
 norm(rollaxes(yml2).swapaxes(0,1)-Y1)
 
 commons.setlogic()
-commons.initialise(30, np.array([np.arange(30)+1]), [1])
+commons.initialise(natoms, np.array([np.arange(natoms)+1]), [1])
 
 p1 = pos1.flatten()
 p2 = pos2.flatten()
