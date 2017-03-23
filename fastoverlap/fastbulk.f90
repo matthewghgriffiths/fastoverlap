@@ -16,6 +16,7 @@
 !    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
 INCLUDE "commons.f90"
+INCLUDE "minperm.f90"
 INCLUDE "fastutils.f90"
 
 

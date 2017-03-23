@@ -4,7 +4,7 @@ import csv
 import numpy as np
 from fastoverlap import SphericalAlign, SphericalHarmonicAlign
 
-datafolder = "BLJ256/"
+datafolder = "LJ38/"
 
 def readFile(filename):
     with open(filename, 'rb') as f:

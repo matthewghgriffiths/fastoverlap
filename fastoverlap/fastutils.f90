@@ -401,6 +401,9 @@ ENDDO
 
 NPEAKS = NFOUND
 
+DEALLOCATE(FSPACECOPY)
+DEALLOCATE(GAUSARRAY)
+
 END SUBROUTINE FINDPEAKS
 
 !***********************************************************************
