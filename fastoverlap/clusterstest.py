@@ -37,7 +37,8 @@ def readFile(filename):
     return np.array(dist)
 
 pos1 = readFile(os.path.join(datafolder, 'coords'))
-pos2 = readFile(os.path.join(datafolder, 'finish'))
+pos2 = -readFile(os.path.join(datafolder, 'finish'))
+p1, p2 = pos1.flatten(), pos2.flatten()
 
 natoms = 38
 
@@ -75,6 +76,7 @@ norm(Imml)
 sph = SphericalHarmonicAlign(sigma, r0, n, l)
 
 Imml = clus.dotharmoniccoeffsnml(c1nml,c2nml)
+Imml = clus.fouriercoeffsmml(p2, p1, l, sigma)
 Ilmm0 = np.rollaxis(rollaxes(Imml, (0,1)),-1)
 Ilmm = sph.calcSO3Coeffs(pos1, pos2)
 
@@ -101,6 +103,8 @@ p1, p2 = pos1.flatten(), pos2.flatten()
 
 nrot = np.array(10)
 angles, rotms, d, d2, rmat = clus.rotations(p1,p2,Imml,True,nrot)
+
+
 
 commons.setlogic()
 commons.initialise(natoms, np.array([np.arange(natoms)+1]), [1])

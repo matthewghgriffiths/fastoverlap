@@ -56,7 +56,7 @@
 !         RETURN
 
 !      ENDIF
- 
+
       CUTOFF1=ORBITTOL
       XVEC(1)=1.0D0; XVEC(2)=0.0D0; XVEC(3)=0.0D0
       YVEC(1)=0.0D0; YVEC(2)=1.0D0; YVEC(3)=0.0D0
