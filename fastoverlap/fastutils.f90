@@ -484,6 +484,33 @@ END SUBROUTINE FINDPEAK
 
 !***********************************************************************
 
+SUBROUTINE PRINTLMDERERROR(INFO)
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: INFO
+
+SELECT CASE (INFO)
+CASE(0)
+    WRITE(MYUNIT,'(A)') "improper input parameters."
+CASE(1)
+    WRITE(MYUNIT,'(A)') "algorithm estimates that the relative error in the sum of squares is at most TOL."
+CASE(2)
+    WRITE(MYUNIT,'(A)') "algorithm estimates that the relative error between X and the solution is at most TOL."
+CASE(3)
+    WRITE(MYUNIT,'(A)') "conditions for INFO = 1 and INFO = 2 both hold."
+CASE(4)
+    WRITE(MYUNIT,'(A)') "FVEC is orthogonal to the columns of the jacobian to machine precision."
+CASE(5)
+    WRITE(MYUNIT,'(A)') "number of calls to FCN with IFLAG = 1 has reached 100*(N+1)."
+CASE(6)
+    WRITE(MYUNIT,'(A)') "TOL is too small.  No further reduction in the sum of squares is possible."
+CASE(7)
+    WRITE(MYUNIT,'(A)') "TOL is too small.  No further improvement in the approximate solution X is possible. "
+END SELECT
+
+END SUBROUTINE PRINTLMDERERROR
+
 SUBROUTINE FINDPEAKS(FSPACE, PEAKS, AMPLITUDES, NPEAKS, DEBUG)
 
 ! This finds up to npeaks of a 3D periodic array
@@ -515,7 +542,10 @@ DO WHILE(NFOUND.EQ.0)
         CALL FINDPEAK(FSPACECOPY, WIDTH, X, INFO, DEFAULTTOL, FMAX)
 
         IF(INFO.EQ.4.OR.INFO.EQ.5) THEN
-            IF (DEBUG) WRITE(MYUNIT,'(A,I2)') "ERROR - fastoverlap peak fitting failed", INFO
+            IF (DEBUG) THEN
+                WRITE(MYUNIT,'(A,I2)') "WARNING - fastoverlaputils peak fitting attempt failed with error:"
+                CALL PRINTLMDERERROR(INFO)
+            ENDIF
             EXIT
         ELSE
             ! Find the location of the peak and subtract this peak from the
