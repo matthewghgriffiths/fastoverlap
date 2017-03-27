@@ -322,7 +322,7 @@ class PeriodicAlign(BasePeriodicAlignment):
         defines periodicity of system being aligned
     permlist : optional
         list of allowed permutations. If nothing is given, all atoms will be
-        considered as permutable. For no permutations give an empty list []
+        considered as permutable.
     scale : optional float
         determins the size of the Gaussian kernels automatically set to be
         1/3 of interatomic separation
