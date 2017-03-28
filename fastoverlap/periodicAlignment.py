@@ -13,7 +13,7 @@ from scipy import median
 from utils import find_best_permutation, findMax, _next_fast_len
 
 try:
-    import fastbulk as fast
+    import fastbulk
     have_fortran=True
 except ImportError:
     have_fortran=False
@@ -27,12 +27,38 @@ class BasePeriodicAlignment(object):
         return self.refine(pos1, pos2, disps)
     ##
     def refine(self, x, y, disps):
-        """
-        Given a displacement vector between two non-permutationally aligned
+        """Given a displacement vector between two non-permutationally aligned
         configurations, this will refine the displacement vector by 
         performing a permutational alignment followed by a calculation of the median
         displacement, followed by a second permutational alignment, and
         then finally setting the mean displacement to 0.
+                
+        Parameters
+        ----------
+        pos1 : (Natoms, 3) array_like
+            Coordinate array.
+        pos2 : (Natoms, 3) array_like
+            Coordinate array to align with pos1.
+        disps : (...,3) array_like, optional
+            Number of different displacements to test
+            
+        Returns
+        -------
+        distance : float
+            Euclidean distance between X1 and X2
+        X1 : (Natoms, 3) array_like
+            pos1, clipped so all points lie with in boxVec/2 of origin
+        X2 : (Natoms, 3) array_like
+            Aligned coordinates of pos2
+        perm : rank-1 array('i') with bounds (Natoms)
+            permutation list of pos2
+        disp : (3) 
+            displacement
+        
+        Notes:
+        -------
+        0 = self.get_dist(pos1, X1)
+        X2 = pos2[perm] - disp[None,:]
         """
         disps = np.atleast_2d(disps)
         distperm = [self.Hungarian(x, y - disp[None,:]) + (disp,)
@@ -320,16 +346,16 @@ class PeriodicAlign(BasePeriodicAlignment):
     Natoms : int 
     boxvec : array like floats
         defines periodicity of system being aligned
-    permlist : optional
+    permlist : sequence of arrays,optional
         list of allowed permutations. If nothing is given, all atoms will be
         considered as permutable.
-    scale : optional float
-        determins the size of the Gaussian kernels automatically set to be
-        1/3 of interatomic separation
-    maxk : optional float
+    scale : float, optional
+        determins the size of the Gaussian kernels, automatically set to be
+        1/3 of interatomic separation if not given
+    maxk : float, optional
         the value of wavevector at which the calculation is truncated
         the higher this is set the more accurate the overlap calculation
-    dim : optional int
+    dim : int, optional
         dimensionality of the system TODO: TEST
     """
     def __init__(self, Natoms, boxvec, permlist=None, dim=3, 
@@ -420,35 +446,86 @@ class PeriodicAlign(BasePeriodicAlignment):
             return dists, aligned
         else:
             return dists
+        
             
 class PeriodicAlignFortran(BasePeriodicAlignment):
-    ##
-    def __init__(self, Natoms, boxVec, permlist=None, dim=3, 
-                 scale=None, maxk=None):       
+    """ Class for aligning two periodic structures in a cubic cell, wrapper for
+    FORTRAN subroutines to do the numerical heavy-lifting
+    
+    Parameters:
+    ----------
+    Natoms : int
+        Number of atoms
+    boxVec : (3,) array_like
+        Lengths of the cubic super cell
+    scale : float, optional
+        The width of the Gaussian kernels, if left out, the Fortran subroutine
+        automatically calculates it.
+    permlist : sequence of arrays,optional
+        Each array in perm represents a different permutation group
+    """
+    def __init__(self, Natoms, boxVec, scale=0, perm=None):       
         self.Natoms = Natoms
         self.boxVec = np.array(boxVec, dtype=float)
-        self.dim = dim
-        if permlist is None:
+        self.scale = scale
+        self.fast = fastbulk
+        self.fast.bulkfastoverlap.setbulk()
+        if perm is None:
             self.setPerm([np.arange(self.Natoms)])
         else:
-            self.setPerm(permlist)
+            self.setPerm(perm)
     ##
     def setPerm(self, perm):
-        self.perm = perm
-        self.nperm = len(perm)
-        self.npermsize = map(len, perm)
-        self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
-        fast.bulkfastoverlap.initialise(self.Natoms, self.permgroup, self.npermsize)
+        if len(perm):
+            self.perm = perm
+            self.nperm = len(perm)
+            self.npermsize = map(len, perm)
+            self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
+        else:
+            self.nperm = 1
+            self.npermsize = [self.Natoms]
+            self.permgroup = np.arange(self.Natoms) + 1
+            self.perm = [self.permgroup]
+        self.fast.fastoverlaputils.setperm(self.Natoms, self.permgroup, self.npermsize)
     ##
-    def align(self, pos1, pos2, ndisps=10, perm=None):
+    def align(self, pos1, pos2, ndisps=10, perm=None, ohcell=False):
+        """ Align two periodic structures, aligns and permutes pos2 to match
+        pos1 as closely as possible.
+        
+        Parameters
+        ----------
+        pos1 : (Natoms, 3) array_like
+            Coordinate array.
+        pos2 : (Natoms, 3) array_like
+            Coordinate array to align with pos1.
+        ndisps : int, optional
+            Number of different displacements to test
+        perm : sequence of arrays, optional
+            Each array in perm represents a different permutation group
+        ohcell : bool
+            If true tests all 48 possible octahedral symmetries
+        
+        Returns
+        -------
+        distance : float
+            Euclidean distance between X1 and X2
+        X1 : (Natoms, 3) array_like
+            Copy of pos1
+        X2 : (Natoms, 3) array_like
+            Aligned coordinates of pos2
+        perm : rank-1 array('i') with bounds (Natoms)
+            This won't give the correct permutation!
+        """
         if perm is not None:
             self.setPerm(perm)
-        coordsb = pos1.flatten()
-        coordsa = pos2.flatten()
-        args = (coordsb, coordsa,True,
-                self.boxVec[0],self.boxVec[1],self.boxVec[2],False,False,ndisps)
-        dist, dist2, disp, perm, disps = fast.bulkfastoverlap.align(*args)
-        return dist, coordsb.reshape(pos1.shape), coordsa.reshape(pos2.shape), perm, disp
+        coordsb = np.asanyarray(pos1).flatten()
+        coordsa = np.asanyarray(pos2).flatten()
+        self.fast.commons.ohcellt = ohcell
+        args = (coordsb, coordsa,False,
+                self.boxVec[0],self.boxVec[1],self.boxVec[2],self.scale,ndisps)
+        dist = self.fast.bulkfastoverlap.align(*args)[0]
+        perm = self.fast.commons.bestperm.copy()
+        return dist, coordsb.reshape(self.Natoms,3), coordsa.reshape(self.Natoms,3), perm
     
 if __name__ == "__main__":
     print 'testing alignment on example data, distance should = 1.559'
@@ -479,14 +556,15 @@ if __name__ == "__main__":
         print 'PeriodicAlignFortran aligment:', overlap_f(pos1, pos2)[0]
     
 
-    """
+if False:
     import timeit
     print 'Timing python implementation'
     print  timeit.timeit("overlap(pos1, pos2)", setup="from __main__ import overlap, pos1, pos2")    
     if  have_fortran:
         print 'Timing Fortran implementation'
         print  timeit.timeit("overlap_f.align(pos1, pos2,1)", setup="from __main__ import overlap_f, pos1, pos2")    
-    """
+        
+    
     """
     Testing Run time in Ipython
     %prun dists, aligned = overlap.alignGroup(coords13, True)

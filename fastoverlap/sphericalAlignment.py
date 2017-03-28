@@ -22,6 +22,12 @@ findMax, findPeaks, findrotation, eval_grad_jacobi, calcThetaPhiR
     
 from soft import SOFT
 
+try:
+    import fastclusters
+    have_fortran=True
+except ImportError:
+    have_fortran=False
+
 class BaseSphericalAlignment(object):
     def calcSO3Coeffs(self, pos1, pos2):
         raise NotImplementedError
@@ -213,58 +219,7 @@ class BaseSphericalAlignment(object):
             except:
                 pass
         return dist, X1, X2
-        
-
-Ilmm_code = """
-std::complex<double> fact;
-std::complex<double> cmplx;
-double x;
-double i_n1;
-double i_n2;
-double pi = 3.141592653589793;
-double scale = {scale};
-double tmp;
-int J = {Jmax};
-int n1 = {n1};
-int n2 = {n2};
-int ind;
-int ind1;
-int ind2;
-
-for(int i=0; i<n1; i++)
-    for(int j=0; j<n2; j++)
-    {{
-        fact = 2*pow(pi,2.5)*pow({scale},3)*exp(-pow(r1[i]-r2[j],2)/4.*pow({scale},-2));
-        x = 0.5*r1[i]*r2[j]*pow({scale},-2);
-        i_n1 = (1. + exp(-2*x))/x;
-        i_n2 = (1. - exp(-2*x))/x;
-        for(int l=0;l<J+1;l++)
-        {{
-            for(int m1=-l; m1<l+1; m1++)
-                for(int m2=-l; m2<l+1; m2++)
-                {{
-                    ind = l*(2*J+1)*(2*J+1) + m1*(2*J+1) + m2;
-                    ind1 = l*(2*J+1)*n1 + m1*n1 + i;
-                    ind2 = l*(2*J+1)*n2 + m2*n2 + j;
-                    if (m1<0)
-                    {{
-                        ind += (2*J+1)*(2*J+1);
-                        ind1 += (2*J+1)*n1;
-                    }}
-                    if (m2<0)
-                    {{
-                        ind += (2*J+1);
-                        ind2 += (2*J+1)*n2;
-                    }}
-                    cmplx = fact*i_n2;
-                    Ilmm[ind] += cmplx*Y1[ind1]*Y2[ind2];
-                }}
-            tmp = i_n2;
-            i_n2 = i_n1 - (double)(2*l + 1)*i_n2/x;
-            i_n1 = tmp;
-        }}
-    }}
-"""
+    
 
 class SphericalAlign(BaseSphericalAlignment):
     def __init__(self, scale, Jmax=15, perm=None):
@@ -449,6 +404,184 @@ class VarSphericalHarmonicAlign(SphericalHarmonicAlign):
         cnlm = np.einsum("nls,slj,lmj->nlm",self.coeffs, dslj, Y.conj())
         return cnlm
         
+class SphericalAlignFortran(BaseSphericalAlignment):
+    """ Class for aligning two isolated structures, wrapper for FORTRAN 
+    subroutines to do the numerical heavy-lifting
+    
+    Parameters:
+    ----------
+    scale : float, optional
+        The width of the Gaussian kernels.
+    Jmax : int, optional
+        Specifies the maximum angular momentum degree up to which SO(3) coefficients
+        will be calculated
+    permlist : sequence of arrays, optional
+        Each array in perm represents a different permutation group
+    Natoms : int, optional
+        Number of atoms
+    """
+    def __init__(self, scale=0.3, Jmax=15, perm=None, Natoms=None):
+        self.scale=scale
+        self.Jmax=Jmax
+        self.fast = fastclusters
+        self.fast.clusterfastoverlap.setcluster()
+        self.Natoms = Natoms
+        if perm is not None:
+            self.setPerm(perm)
+        elif Natoms is not None:
+            self.setPerm(perm)
+        else:
+            self.perm = perm
+        self.malign = self.__call__
+    ##
+    def setPerm(self, perm):
+        self.Natoms = sum(map(len,perm))
+        self.perm = perm
+        self.nperm = len(perm)
+        self.npermsize = map(len, perm)
+        self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
+        self.fast.fastoverlaputils.setperm(self.Natoms, self.permgroup, self.npermsize)
+    ##
+#    def malign(self, pos1, pos2, perm=None, invert=False, nrot=10, debug=False):
+#        return self(pos1, pos2, perm, invert, nrot, debug)
+    ##
+    def align(self, pos1, pos2, perm=None, invert=True, debug=False):
+        return self(pos1, pos2, perm, invert, 1, debug)
+    ##
+    def __call__(self, pos1, pos2, perm=None, invert=True, nrot=10, debug=False):
+        """ Aligns two isolated structures, aligns and permutes pos2 to match
+        pos1 as closely as possible. Returns the distance between the aligned 
+        structures, and the rotated and centred coordinates of the two structures
+        
+        Parameters
+        ----------
+        pos1 : (Natoms, 3) array_like
+            Coordinate array.
+        pos2 : (Natoms, 3) array_like
+            Coordinate array to align with pos1.
+        nrot : int, optional
+            Number of different displacements to test
+        perm : sequence of arrays, optional
+            Each array in perm represents a different permutation group
+        invert : bool
+            If true tests inverted configurations as well
+        debug : bool, optional
+            If true prints debug information
+        
+        Returns
+        -------
+        distance : float
+            Euclidean distance between X1 and X2
+        X1 : (Natoms, 3) array
+            pos1 centred on the origin
+        X2 : (Natoms, 3) array
+            Aligned coordinates of pos2
+        rmatbest : (3,3) array
+            the rotation matrix that maps centred pos2 onto X2
+        """
+        if perm is not None:
+            self.setPerm(perm)
+        elif self.Natoms is None:
+            self.Natoms = len(pos1)
+            self.setPerm([np.arange(self.Natoms)])
+            
+        coordsb = np.asanyarray(pos1).flatten()
+        coordsa = np.asanyarray(pos2).flatten()
+        self.fast.commons.perminvopt = invert
+        args = (coordsb,coordsa,debug,self.Jmax,self.scale,nrot)
+        dist, _, rmatbest = self.fast.clusterfastoverlap.align(*args)
+        return dist, coordsb.reshape(self.Natoms,3), coordsa.reshape(self.Natoms,3), rmatbest
+        
+class SphericalHarmonicAlignFortran(BaseSphericalAlignment):
+    """ Class for aligning two isolated structures, wrapper for FORTRAN 
+    subroutines to do the numerical heavy-lifting
+    
+    Parameters:
+    ----------
+    scale : float, optional
+        The width of the Gaussian kernels.
+    Jmax : int, optional
+        Specifies the maximum angular momentum degree up to which SO(3) coefficients
+        will be calculated
+    permlist : sequence of arrays, optional
+        Each array in perm represents a different permutation group
+    Natoms : int, optional
+        Number of atoms
+    """
+    def __init__(self, scale=0.3, Jmax=15, harmscale=1.0, nmax=20, perm=None, Natoms=None):
+        self.scale=scale
+        self.Jmax=Jmax
+        self.harmscale=harmscale
+        self.nmax=nmax
+        self.fast = fastclusters
+        self.fast.clusterfastoverlap.setcluster()
+        self.Natoms = Natoms
+        if perm is not None:
+            self.setPerm(perm)
+        elif Natoms is not None:
+            self.setPerm(perm)
+        else:
+            self.perm = perm
+        self.malign = self.__call__
+    ##
+    def setPerm(self, perm):
+        self.Natoms = sum(map(len,perm))
+        self.perm = perm
+        self.nperm = len(perm)
+        self.npermsize = map(len, perm)
+        self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
+        self.fast.fastoverlaputils.setperm(self.Natoms, self.permgroup, self.npermsize)
+    ##
+#    def malign(self, pos1, pos2, perm=None, invert=False, nrot=10, debug=False):
+#        return self(pos1, pos2, perm, invert, nrot, debug)
+    ##
+    def align(self, pos1, pos2, perm=None, invert=True, debug=False):
+        return self(pos1, pos2, perm, invert, 1, debug)
+    ##
+    def __call__(self, pos1, pos2, perm=None, invert=True, nrot=10, debug=False):
+        """ Aligns two isolated structures, aligns and permutes pos2 to match
+        pos1 as closely as possible. Returns the distance between the aligned 
+        structures, and the rotated and centred coordinates of the two structures
+        
+        Parameters
+        ----------
+        pos1 : (Natoms, 3) array_like
+            Coordinate array.
+        pos2 : (Natoms, 3) array_like
+            Coordinate array to align with pos1.
+        nrot : int, optional
+            Number of different displacements to test
+        perm : sequence of arrays, optional
+            Each array in perm represents a different permutation group
+        invert : bool
+            If true tests inverted configurations as well
+        debug : bool, optional
+            If true prints debug information
+        
+        Returns
+        -------
+        distance : float
+            Euclidean distance between X1 and X2
+        X1 : (Natoms, 3) array
+            pos1 centred on the origin
+        X2 : (Natoms, 3) array
+            Aligned coordinates of pos2
+        rmatbest : (3,3) array
+            the rotation matrix that maps centred pos2 onto X2
+        """
+        if perm is not None:
+            self.setPerm(perm)
+        elif self.Natoms is None:
+            self.Natoms = len(pos1)
+            self.setPerm([np.arange(self.Natoms)])
+            
+        coordsb = np.asanyarray(pos1).flatten()
+        coordsa = np.asanyarray(pos2).flatten()
+        self.fast.commons.perminvopt = invert
+        args = (coordsb,coordsa,debug,self.nmax,self.Jmax,self.harmscale,self.scale,nrot)
+        dist, _, rmatbest = self.fast.clusterfastoverlap.alignharm(*args)
+        return dist, coordsb.reshape(self.Natoms,3), coordsa.reshape(self.Natoms,3), rmatbest
+        
 if  __name__ == '__main__':
     scale = 0.3
     Jmax = 7
@@ -460,6 +593,9 @@ if  __name__ == '__main__':
     #
     soap = SphericalAlign(scale, Jmax)
     harm = SphericalHarmonicAlign(scale, 1.0, Nmax, Jmax)
+    if have_fortran:
+        soapf = SphericalAlignFortran(scale, Jmax)
+        harmf = SphericalHarmonicAlignFortran(scale, Jmax=Jmax, harmscale=1.0, nmax=Nmax)
     soft = SOFT(Jmax+1)
     # res = soap.calcCoeff(pos1, pos2)
     # fout = soft.iSOFT(res.conj()).real
