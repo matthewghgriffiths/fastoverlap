@@ -28,13 +28,91 @@
 !    ISBN: 0-471-11963-6,
 !    LC: QA351.C45.
 
-INCLUDE "commons.f90"
+!***********************************************************************
+! CLUSTERFASTOVERLAP MODULE
+!***********************************************************************
 
+! Subroutines:
+!
+!    HARMONIC0L(L, RJ, SIGMA, R0, RET)
+!        Calculates the Harmonic integral when n=0
+!
+!    HARMONICNL(N,L,RJ,SIGMA,R0,RET)
+!        Calculates Harmonic integral up to N,L
+!        Note calculation unstable, so SIGMA must be > 10 RJ to get good results
+!    
+!    RYML(COORD, R, YML, L)
+!        Calculates |COORD| and the Spherical Harmonic associated with COORD up to l
+!    
+!    HARMONICCOEFFS(COORDS, NATOMS, CNML, N, L, HWIDTH, KWIDTH)
+!        Projects structure into Quantum Harmonic Oscillator Basis with scale HWIDTH and
+!        Gaussian kernel width KWIDTH up to order N and angular moment degree L
+!    
+!    DOTHARMONICCOEFFS(C1NML, C2NML, N, L, IMML)
+!        Calculates the SO(3) Fourier Coefficients of the overlap integral of two 
+!        structures with coefficient arrays C1NML and C2NML
+!    
+!    FOURIERCOEFFS(COORDSB, COORDSA, NATOMS, L, KWIDTH, IMML, YMLB, YMLA)
+!        Calculates the SO(3) Fourier Coefficients of the overlap integral of two 
+!        structures directly by calculating the coefficients of the NATOMS**2
+!        Gaussian overlap functions.
+!    
+!    CALCOVERLAP(IMML, OVERLAP, L, ILMM)
+!        Calculates the overlap integral array from SO(3) Fourier Coefficients IMML
+!        Also returns ILMM, the transposed and rolled version of IMML used by DSOFT
+!    
+!    FINDROTATIONS(OVERLAP, L, ANGLES, AMPLITUDES, NROTATIONS, DEBUG)
+!        Finds the maximum overlap Euler angles of an overlap integral array
+!    
+!    EULERM(A,B,G,ROTM)
+!        Calculates rotation matrix, ROTM, corresponding to  Euler angles, a,b,g
+!    
+!    EULERINVM(A,B,G,ROTM)
+!        Calculates transpose/inverse of rotation matrix corresponding to Euler angles, a,b,g
+!    
+!    SETCLUSTER()
+!        Used to set keywords if they're not set already
+!    
+!    CHECKKEYWORDS()
+!        Sanity checks for the keywords
+!    
+!    ALIGNHARM(COORDSB, COORDSA, NATOMS, DEBUG, N, L, HWIDTH, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
+!        Performs alignment using SO(3) Coefficients calculated using Quantum Harmonic Oscillator Basis 
+!        KWIDTH is the Gaussian Kernel width,  HWIDTH is the Quantum Harmonic Oscillator Basis length scale
+!        These need to be carefully chosen along with N and L to ensure calculation is stable and accurate.
+!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
+!
+!    ALIGN(COORDSB, COORDSA, NATOMS, DEBUG, L, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
+!        MAIN ALIGNMENT ALGORITHM ROUTINE
+!        KWIDTH is the Gaussian Kernel width, this should probably be set to ~1/3 interatomic separation.
+!        Performs alignment using SO(3) Coefficients calculated directly. 
+!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
+!    
+!    ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROTATIONS,ANGLES)
+!        Primary alignment routine, called by ALIGN1
+!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
+
+!***********************************************************************
+
+! EXTERNAL SUBROUTINES
+!    MINPERMDIST (minpermdist.f90) depends on (bulkmindist.f90,minperm.f90,newmindist.f90,orient.f90)
+
+!***********************************************************************
+
+! EXTERNAL MODULES
+!    COMMONS (commons.f90)
+!    FASTOVERLAPUTILS (fastutils.f90) depends on (minperm.f90)
+!        Helper Module Needed for Peak Fitting and FFT routines
+!    DSOFT (DSOFT.f90) 
+!        Module for performing discrete SO(3) transforms, depends on fftw.
+
+!***********************************************************************
+
+INCLUDE "commons.f90"
 INCLUDE "fastutils.f90"
 
 ! Module for performing discrete SO(3) transforms, depends on fftw.
 INCLUDE "DSOFT.f90"
-
 
 MODULE CLUSTERFASTOVERLAP
 
@@ -101,122 +179,21 @@ ENDDO
 R0SIGMA = SIGMA**2/RJ/R0
 ! When I=1 don't calculate RET(I-2,J)
 I = 1
-SQRTI = 1.D0 !SQRT(REAL(I,8))
+SQRTI = 1.D0
 DO J=0,L-2
-!write(*,*) J, SQRT(I+J+0.5D0), (2.D0*J+3.D0)*SIGMA**2/RJ/R0, SQRT(I+J+1.5D0)
-!write(*,*) J, RET(I-1,J), RET(I-1,J+1), RET(I-1,J+2)
-!write(*,*) J, SQRT(I+J+0.5D0)*RET(I-1,J), (2.D0*J+3.D0)*SIGMA**2/RJ/R0 * RET(I-1,J+1), SQRT(I+J+1.5D0) * RET(I-1,J+2)
-RET(I,J) = (SQRT(I+J+0.5D0)*RET(I-1,J) - (2.D0*J+3.D0)*SIGMA**2/RJ/R0 * RET(I-1,J+1) -&
-    SQRT(I+J+1.5D0) * RET(I-1,J+2))/SQRTI
-!write(*,*) J, RET(I,J)
+    RET(I,J) = (SQRT(I+J+0.5D0)*RET(I-1,J) - (2.D0*J+3.D0)*SIGMA**2/RJ/R0 * RET(I-1,J+1) -&
+        SQRT(I+J+1.5D0) * RET(I-1,J+2))/SQRTI
 ENDDO
-! Assuming that integral for J>L = 0
-!RET(I,L-1) = (SQRT(I+J+0.5D0)*RET(I-1,J) - (2.D0*J+3.D0)*SIGMA**2/RJ/R0 * RET(I-1,J+1))/SQRTI
-!RET(I,L) = (SQRT(I+J+0.5D0)*RET(I-1,J))/SQRTI
-
 
 DO I=2,N
-SQRTI = SQRT(REAL(I,8))
-DO J=0,L-2*I
-RET(I,J) = (SQRT(I+J+0.5D0)*RET(I-1,J) - (2.D0*J+3.D0)*SIGMA**2/RJ/R0 * RET(I-1,J+1) -&
-    SQRT(I+J+1.5D0) * RET(I-1,J+2) + SQRT(I-1.D0) * RET(I-2,J+2))/SQRTI
-ENDDO
-! Assuming that integral for J>L = 0
-!RET(I,L-1) = (SQRT(I+J+0.5D0)*RET(I-1,J) - (2.D0*J+3.D0)*SIGMA**2/RJ/R0 * RET(I-1,J+1))/SQRTI
-!RET(I,L) = (SQRT(I+J+0.5D0)*RET(I-1,J))/SQRTI
+    SQRTI = SQRT(REAL(I,8))
+    DO J=0,L-2*I
+    RET(I,J) = (SQRT(I+J+0.5D0)*RET(I-1,J) - (2.D0*J+3.D0)*SIGMA**2/RJ/R0 * RET(I-1,J+1) -&
+        SQRT(I+J+1.5D0) * RET(I-1,J+2) + SQRT(I-1.D0) * RET(I-2,J+2))/SQRTI
+    ENDDO
 ENDDO
 
 END SUBROUTINE HARMONICNL
-
-SUBROUTINE LEGENDREL(PP,PM,PLMS,Z,L)
-! Calculates values of Associated Legendre polynomial between
-! P^{L-1}_L -> P^{-L+1}_L
-! With PP = P^L_L and PM = P^{-L}_L
-! Does this by solving a two term recurrence relation with PP and PM specifying
-! the boundary conditions
-
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: L
-DOUBLE PRECISION, INTENT(IN) :: PP, PM, Z
-DOUBLE PRECISION, INTENT(OUT) :: PLMS(2*L-1)
-
-DOUBLE PRECISION :: D(2*L-1), DU(2*L-2), DL(2*L-2)
-INTEGER INFO, J
-
-DO J=0,2*L-2
-    
-ENDDO
-
-
-END SUBROUTINE LEGENDREL
-
-SUBROUTINE RYLM(COORD, R, YLM, L)
-
-! Calculates the Spherical Harmonics associated with coordinate COORD
-! up to L, returns R, the distance COORD is from origin
-! Calculates value of Legendre Polynomial Recursively
-
-IMPLICIT NONE
-
-DOUBLE PRECISION, INTENT(IN) :: COORD(3)
-INTEGER, INTENT(IN) :: L
-DOUBLE PRECISION, INTENT(OUT) :: R
-COMPLEX*16, INTENT(OUT) :: YLM(0:L,0:2*L)
-
-INTEGER J, M, INDM1, INDM0, INDM2
-DOUBLE PRECISION THETA, PHI, Z, FACTORIALS(0:2*L)
-COMPLEX*16 EXPIM(0:2*L)
-DOUBLE PRECISION, EXTERNAL :: RLEGENDREL0, RLEGENDREM0, RLEGENDREM1
-
-
-R = (COORD(1)**2+COORD(2)**2+COORD(3)**2)**0.5
-PHI = ATAN2(COORD(2), COORD(1))
-Z = COORD(3)/R
-
-!Calculating Associate Legendre Function
-YLM = CMPLX(0.D0,0.D0, 8)
-YLM(0,0) = (4*PI)**-0.5
-
-! Calculating Factorials
-FACTORIALS(0) = 1.D0
-DO M=1,2*L
-    FACTORIALS(M) = M*FACTORIALS(M-1)
-ENDDO
-
-
-! Initialising Recurrence for Associated Legendre Polynomials
-DO J=0, L-1
-    YLM(J+1,J+1) = RLEGENDREL0(J, Z) * YLM(J,J) !* ((2.D0*J+3,D0)/(2.D0*J+1.D0)/(2.D0*J+1.D0)/(2.D0*J+2.D0))
-    YLM(J+1,J) = RLEGENDREM0(J+1,J+1,Z) * YLM(J+1,J+1)
-ENDDO
-
-! Recurrence for Associated Legendre Polynomials
-DO J=1,L
-    DO M=J-1,-J+1,-1
-        INDM1 = MODULO(M+1, 2*L+1)
-        INDM2 = MODULO(M-1, 2*L+1)
-        INDM0 = MODULO(M, 2*L+1)
-        YLM(J,INDM2) = RLEGENDREM0(M,J,Z) * YLM(J,INDM0) + RLEGENDREM1(M,J,Z) * YLM(J,INDM1)
-    ENDDO
-ENDDO
-
-! Calculating exp(imPHI) component
-DO M=-L,L
-    INDM0 = MODULO(M, 2*L+1)
-    EXPIM(INDM0) = EXP(CMPLX(0.D0, M*PHI, 8))
-ENDDO
-
-! Calculate Spherical Harmonics
-DO J=1,L
-    DO M=-J,J
-        INDM0 = MODULO(M, 2*L+1)
-        ! Could probably calculate the prefactor through another recurrence relation...
-        YLM(J,INDM0) = EXPIM(INDM0)*YLM(J,INDM0) * ((2.D0*J+1.D0)*FACTORIALS(J-M)/FACTORIALS(J+M))**0.5
-    ENDDO
-ENDDO
-
-END SUBROUTINE RYLM
 
 SUBROUTINE RYML(COORD, R, YML, L)
 
@@ -259,12 +236,6 @@ DO J=0, L-1
     YML(J, J+1) = -SQRT(2.D0*(J+1))*Z/SQRTZ * YML(J+1, J+1)
 ENDDO
 
-!DO J=1,L
-!    M = J
-!    SQRTMJ = SQRT((J+M)*(J-M+1.D0))
-!    YML(M-1, J) = -2*M*Z/SQRTMJ/SQRTZ * YML(M, J)
-!ENDDO
-
 ! Recurrence for normalised Associated Legendre Polynomials
 DO J=1,L
     DO M=J-1,-J+1,-1
@@ -288,42 +259,7 @@ ENDDO
 
 END SUBROUTINE RYML
 
-SUBROUTINE HARMONICCOEFFS(COORDS, NATOMS, CNLM, N, L, HWIDTH, KWIDTH)
-
-!
-! For a set of Gaussian Kernels of width KWIDTH at COORDS, 
-! this will calculate the coefficients of the isotropic quantum harmonic basis
-! cnlm with length scale HWIDTH up to N and L.
-!
-
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: NATOMS, N, L
-DOUBLE PRECISION, INTENT(IN) :: COORDS(3*NATOMS), HWIDTH, KWIDTH
-COMPLEX*16, INTENT(OUT) :: CNLM(0:N,0:L,0:2*L)
-
-COMPLEX*16 :: YLM(0:L,0:2*L)
-DOUBLE PRECISION HARMCOEFFS(0:2*N+L,0:N,0:L), DNL(0:N,0:L+2*N), RJ
-INTEGER I,J,K,SI,M,INDM, S
-
-CNLM = CMPLX(0.D0,0.D0,8)
-
-DO K=1,NATOMS
-    CALL RYLM(COORDS(3*K-2:3*K), RJ, YLM, L)
-    CALL HARMONICNL(N,L+2*N,RJ,KWIDTH,HWIDTH,DNL)
-    DO J=0,L
-        DO M=-J,J
-            INDM = MODULO(M,2*L+1)
-            DO I=0,N
-            CNLM(I,J,INDM) = CNLM(I,J,INDM) + DNL(I,J) * CONJG(YLM(J,INDM))
-            ENDDO
-        ENDDO
-    ENDDO
-ENDDO
-
-END SUBROUTINE HARMONICCOEFFS
-
-SUBROUTINE HARMONICCOEFFSNML(COORDS, NATOMS, CNML, N, L, HWIDTH, KWIDTH)
+SUBROUTINE HARMONICCOEFFS(COORDS, NATOMS, CNML, N, L, HWIDTH, KWIDTH)
 
 !
 ! For a set of Gaussian Kernels of width KWIDTH at COORDS, 
@@ -356,35 +292,9 @@ DO K=1,NATOMS
     ENDDO
 ENDDO
 
-END SUBROUTINE HARMONICCOEFFSNML
+END SUBROUTINE HARMONICCOEFFS
 
-SUBROUTINE DOTHARMONICCOEFFS(C1NLM, C2NLM, N, L, ILMM)
-
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: N, L
-COMPLEX*16, INTENT(IN) :: C1NLM(0:N,0:L,0:2*L), C2NLM(0:N,0:L,0:2*L)
-COMPLEX*16, INTENT(OUT) :: ILMM(0:L,0:2*L,0:2*L)
-
-INTEGER I, J, M1, M2, INDM1, INDM2
-
-ILMM = CMPLX(0.D0,0.D0,8)
-
-DO J=0,L
-    DO M1=-J,J
-        INDM1 = MODULO(M1, 2*L+1)
-        DO M2=-J,J
-            INDM2 = MODULO(M2, 2*L+1)
-            DO I=0,N
-                ILMM(J,INDM1,INDM2) = ILMM(J,INDM1,INDM2) + CONJG(C1NLM(I,J,INDM1))*C2NLM(I,J,INDM2)
-            ENDDO
-        ENDDO
-    ENDDO
-ENDDO
-
-END SUBROUTINE DOTHARMONICCOEFFS
-
-SUBROUTINE DOTHARMONICCOEFFSNML(C1NML, C2NML, N, L, IMML)
+SUBROUTINE DOTHARMONICCOEFFS(C1NML, C2NML, N, L, IMML)
 
 IMPLICIT NONE
 
@@ -406,57 +316,9 @@ DO J=0,L
     ENDDO
 ENDDO
 
-END SUBROUTINE DOTHARMONICCOEFFSNML
+END SUBROUTINE DOTHARMONICCOEFFS
 
-SUBROUTINE FOURIERCOEFFS(COORDSB, COORDSA, NATOMS, L, KWIDTH, ILMM)
-!
-! Calculates S03 Coefficients of the overlap integral of two structures
-! does this calculation by direct calculation of the overlap between every pair
-! of atoms, slower than the Harmonic basis, but slightly more accurate.
-!
-
-IMPLICIT NONE
-DOUBLE PRECISION, INTENT(IN) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS), KWIDTH
-INTEGER, INTENT(IN) :: NATOMS, L
-COMPLEX*16, INTENT(OUT) :: ILMM(0:L,0:2*L,0:2*L)
-
-COMPLEX*16 YLMA(0:L,0:2*L,NATOMS), YLMB(0:L,0:2*L,NATOMS)
-DOUBLE PRECISION RA(NATOMS), RB(NATOMS), IL(0:L), R1R2, EXPRA(NATOMS), EXPRB(NATOMS), FACT, TMP
-
-INTEGER IA,IB,I,J,K,M1,M2,INDM1,INDM2
-
-! Precalculate some values
-DO I=1,NATOMS
-    CALL RYLM(COORDSA(3*I-2:3*I), RA(I), YLMA(:,:,I), L)
-    CALL RYLM(COORDSB(3*I-2:3*I), RB(I), YLMB(:,:,I), L)
-    EXPRA(I) = EXP(-0.25D0 * RA(I)**2 / KWIDTH**2)
-    EXPRB(I) = EXP(-0.25D0 * RB(I)**2 / KWIDTH**2)
-ENDDO
-
-
-FACT = 4.D0 * PI**2.5 * KWIDTH**3
-
-ILMM = CMPLX(0.D0,0.D0,8)
-DO IA=1,NATOMS
-    DO IB=1,NATOMS
-        R1R2 = 0.5D0 * RA(IA)*RB(IB)/KWIDTH**2
-        CALL SPHI(L, R1R2, K, IL)
-        TMP = FACT*EXPRA(IA)*EXPRB(IB)
-        DO J=0,L
-            DO M2=-L,L
-                INDM2 = MODULO(M2, 2*L+1)
-                DO M1=-L,L
-                    INDM1 = MODULO(M1, 2*L+1)
-                    ILMM(J,INDM1,INDM2) = ILMM(J,INDM1,INDM2) + IL(J)*YLMA(J,INDM1,IA)*CONJG(YLMA(J,INDM2,IB))*TMP
-                ENDDO
-            ENDDO
-        ENDDO
-    ENDDO
-ENDDO
-
-END SUBROUTINE FOURIERCOEFFS
-
-SUBROUTINE FOURIERCOEFFSMML(COORDSB, COORDSA, NATOMS, L, KWIDTH, IMML, YMLB, YMLA)
+SUBROUTINE FOURIERCOEFFS(COORDSB, COORDSA, NATOMS, L, KWIDTH, IMML, YMLB, YMLA)
 !
 ! Calculates S03 Coefficients of the overlap integral of two structures
 ! does this calculation by direct calculation of the overlap between every pair
@@ -469,7 +331,6 @@ INTEGER, INTENT(IN) :: NATOMS, L
 COMPLEX*16, INTENT(OUT) :: IMML(-L:L,-L:L,0:L)
 
 COMPLEX*16, INTENT(OUT) ::  YMLA(-L:L,0:L,NATOMS), YMLB(-L:L,0:L,NATOMS)
-!COMPLEX*16 YMLA(-L:L,0:L,NATOMS), YMLB(-L:L,0:L,NATOMS)
 DOUBLE PRECISION RA(NATOMS), RB(NATOMS), IL(0:L), R1R2, EXPRA(NATOMS), EXPRB(NATOMS), FACT, TMP
 
 INTEGER IA,IB,I,J,K,M1,M2,INDM1,INDM2
@@ -493,7 +354,6 @@ DO IA=1,NATOMS
         DO J=0,L
             DO M2=-L,L
                 DO M1=-L,L
-!                    IMML(M1,M2,J) = IMML(M1,M2,J) + IL(J)*YMLA(M1,J,IA)*CONJG(YMLB(M2,J,IB))*TMP
                     IMML(M1,M2,J) = IMML(M1,M2,J) + IL(J)*YMLB(M1,J,IA)*CONJG(YMLA(M2,J,IB))*TMP
                 ENDDO
             ENDDO
@@ -501,7 +361,7 @@ DO IA=1,NATOMS
     ENDDO
 ENDDO
 
-END SUBROUTINE FOURIERCOEFFSMML
+END SUBROUTINE FOURIERCOEFFS
 
 SUBROUTINE CALCOVERLAP(IMML, OVERLAP, L, ILMM)
 ! Converts an array of SO(3) Fourier Coefficients to a discrete
@@ -558,7 +418,7 @@ INTEGER, INTENT(IN) :: L
 INTEGER, INTENT(INOUT) :: NROTATIONS
 LOGICAL, INTENT(IN) :: DEBUG
 DOUBLE PRECISION, INTENT(IN) :: OVERLAP(2*L+2,2*L+2,2*L+2)
-DOUBLE PRECISION, INTENT(OUT) :: ANGLES(NROTATIONS,3), AMPLITUDES(NROTATIONS)!, ROTMS(3,3,NROTATIONS)
+DOUBLE PRECISION, INTENT(OUT) :: ANGLES(NROTATIONS,3), AMPLITUDES(NROTATIONS)
 
 DOUBLE PRECISION CONVERT
 INTEGER J
@@ -572,12 +432,6 @@ CONVERT = PI / (2*L+2)
 ANGLES(:NROTATIONS,1) = (ANGLES(:NROTATIONS,1)-1.0D0) * 2 * CONVERT
 ANGLES(:NROTATIONS,2) = (ANGLES(:NROTATIONS,2)-0.5D0) * CONVERT
 ANGLES(:NROTATIONS,3) = (ANGLES(:NROTATIONS,3)-1.0D0) * 2 * CONVERT
-
-!WRITE(*,*) NROTATIONS
-!WRITE(*,*) SHAPE(ANGLES), SHAPE(ROTMS(:,:,0)), SHAPE(ROTMS(:,:,NROTATIONS)) 
-!!DO J=0,NROTATIONS
-!!    CALL EULERM(ANGLES(J,1),ANGLES(J,2),ANGLES(J,3),ROTMS(:,:,J))
-!!ENDDO
 
 END SUBROUTINE FINDROTATIONS
 
@@ -738,10 +592,24 @@ ENDIF
 END SUBROUTINE CHECKKEYWORDS
 
 SUBROUTINE ALIGNHARM(COORDSB, COORDSA, NATOMS, DEBUG, N, L, HWIDTH, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
-!
-! Aligns two isolated structures specified by COORDSB and COORDSA by projecting into
-! harmonic oscillator basis to calculate overlap integral.
-!
+!  COORDSA becomes the optimal alignment of the optimal permutation(-inversion)
+!  isomer. DISTANCE is the residual square distance for the best alignment with 
+!  respect to permutation(-inversion)s as well as orientation and centre of mass.
+!  COORDSA and COORDSB are both centred on the ORIGIN
+
+!  RMATBEST gives the optimal rotation matrix
+
+!  KWIDTH is the width of the Gaussian kernels that are centered on each of the
+!  atomic coordinates, whose overlap integral is maximised to find the optimal
+!  rotations
+!  L is the maximum angular momentum degree up to which the SO(3) coefficients 
+!  are calculated number of coefficients that will be calculated = 1/3 (L+1)(2L+1)(2L+3)
+
+!  HWIDTH is the lengthscale of the Quantum Harmonic Oscillator Basis
+!  N is the maximum order of the Quantum Harmonic Oscillator basis
+
+!  Number of Calculations for SO(3) calculations ~ O(1/3 (L+1)(2L+1)(2L+3) * NATOMS**2)
+
 USE COMMONS, ONLY: BESTPERM, PERMOPT, PERMINVOPT, NOINVERSION, CHRMMT, AMBERT, AMBER12T
 IMPLICIT NONE
 
@@ -771,10 +639,6 @@ NOINVERSIONSAVE = NOINVERSION
 PERMINVOPT = .FALSE.
 NOINVERSION = .TRUE.
 
-!CALL HARMONICCOEFFSNML(COORDSA, NATOMS, COEFFSA, N, L, HWIDTH, KWIDTH)
-!CALL HARMONICCOEFFSNML(COORDSB, NATOMS, COEFFSB, N, L, HWIDTH, KWIDTH)
-!CALL DOTHARMONICCOEFFSNML(COEFFSB, COEFFSA, N, L, IMML)
-
 ! Calculating overlap integral separately for each permutation group
 IMML = CMPLX(0.D0,0.D0,8)
 NDUMMY=1
@@ -785,9 +649,9 @@ DO J1=1,NPERMGROUP
         SAVEA(3*J2-2:3*J2)=COORDSA(3*IND2-2:3*IND2)
         SAVEB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
     ENDDO
-    CALL HARMONICCOEFFSNML(SAVEA, PATOMS, COEFFSA(:,:,:,J1), N, L, HWIDTH, KWIDTH)
-    CALL HARMONICCOEFFSNML(SAVEB, PATOMS, COEFFSB(:,:,:,J1), N, L, HWIDTH, KWIDTH)
-    CALL DOTHARMONICCOEFFSNML(COEFFSB(:,:,:,J1), COEFFSA(:,:,:,J1), N, L, IMML)
+    CALL HARMONICCOEFFS(SAVEA, PATOMS, COEFFSA(:,:,:,J1), N, L, HWIDTH, KWIDTH)
+    CALL HARMONICCOEFFS(SAVEB, PATOMS, COEFFSB(:,:,:,J1), N, L, HWIDTH, KWIDTH)
+    CALL DOTHARMONICCOEFFS(COEFFSB(:,:,:,J1), COEFFSA(:,:,:,J1), N, L, IMML)
     DO J=0,L
         DO M2=-J,J
             DO M1=-J,J
@@ -816,7 +680,7 @@ IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN
         DO J=0,L
             COEFFSA(:,:,J,J1) = COEFFSA(:,:,J,J1) * (-1)**(J)
         ENDDO
-        CALL DOTHARMONICCOEFFSNML(COEFFSB(:,:,:,J1), COEFFSA(:,:,:,J1), N, L, IMML)
+        CALL DOTHARMONICCOEFFS(COEFFSB(:,:,:,J1), COEFFSA(:,:,:,J1), N, L, IMML)
         DO J=0,L
             DO M2=-J,J
                 DO M1=-J,J
@@ -847,16 +711,34 @@ ELSE
     RMATBEST = RMATSAVE
 ENDIF
 
+IF (DEBUG) THEN
+    WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> overall best distance=', distance
+    WRITE(MYUNIT,'(A)') 'fastoverlap> overall best rotation matrix:'
+    WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
+ENDIF
+
 PERMINVOPT = PERMINVOPTSAVE
 NOINVERSION = NOINVERSIONSAVE
-
-IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> overall best distance=', distance
-IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> overall best rotation matrix:'
-IF (DEBUG) WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
 
 END SUBROUTINE ALIGNHARM
 
 SUBROUTINE ALIGN(COORDSB, COORDSA, NATOMS, DEBUG, L, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
+
+!  COORDSA becomes the optimal alignment of the optimal permutation(-inversion)
+!  isomer. DISTANCE is the residual square distance for the best alignment with 
+!  respect to permutation(-inversion)s as well as orientation and centre of mass.
+!  COORDSA and COORDSB are both centred on the ORIGIN
+
+!  KWIDTH is the width of the Gaussian kernels that are centered on each of the
+!  atomic coordinates, whose overlap integral is maximised to find the optimal
+!  rotations
+
+!  RMATBEST gives the optimal rotation matrix
+
+!  L is the maximum angular momentum degree up to which the SO(3) coefficients 
+!  are calculated number of coefficients that will be calculated = 1/3 (L+1)(2L+1)(2L+3)
+
+!  Number of Calculations for SO(3) calculations ~ O(1/3 (L+1)(2L+1)(2L+3) * NATOMS**2)
 
 USE COMMONS, ONLY: BESTPERM, PERMOPT, PERMINVOPT, NOINVERSION, CHRMMT, AMBERT, AMBER12T
 IMPLICIT NONE
@@ -871,7 +753,7 @@ DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2, RMATBEST(3,3)
 COMPLEX*16 PIMML(-L:L,-L:L,0:L)
 COMPLEX*16 IMML(-L:L,-L:L,0:L), YMLA(-L:L,0:L,NATOMS), YMLB(-L:L,0:L,NATOMS)
 
-DOUBLE PRECISION SAVEA(3*NATOMS),SAVEB(3*NATOMS)
+DOUBLE PRECISION SAVEA(3*NATOMS),SAVEB(3*NATOMS),COMA(3),COMB(3)
 DOUBLE PRECISION ANGLES(NROTATIONS,3), DISTSAVE, RMATSAVE(3,3), WORSTRAD, DIST2SAVE
 INTEGER J,J1,J2,M1,M2,IND2,NROT,NDUMMY,INVERT,PATOMS
 INTEGER SAVEPERM(NATOMS), KEEPPERM(NATOMS)
@@ -885,9 +767,20 @@ NOINVERSIONSAVE = NOINVERSION
 PERMINVOPT = .FALSE.
 NOINVERSION = .TRUE.
 
-!SAVEA(1:3*NATOMS) = COORDSA(1:3*NATOMS)
-!SAVEB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
-!CALL FOURIERCOEFFSMML(SAVEB,SAVEA,NATOMS,L,KWIDTH,IMML,YMLB,YMLA)
+! Centering COORDSA and COORDSB on the origin
+COMA = 0.D0
+COMB = 0.D0
+DO J=1,NATOMS
+    COMA = COMA + COORDSA(3*J-2:3*J)
+    COMB = COMB + COORDSB(3*J-2:3*J)
+ENDDO
+COMA = COMA/NATOMS
+COMB = COMB/NATOMS
+DO J=1,NATOMS
+    COORDSA(3*J-2:3*J) = COORDSA(3*J-2:3*J) - COMA
+    COORDSB(3*J-2:3*J) = COORDSB(3*J-2:3*J) - COMB
+ENDDO
+
 
 ! Calculating overlap integral separately for each permutation group
 IMML = CMPLX(0.D0,0.D0,8)
@@ -899,7 +792,7 @@ DO J1=1,NPERMGROUP
         SAVEA(3*J2-2:3*J2)=COORDSA(3*IND2-2:3*IND2)
         SAVEB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
     ENDDO
-    CALL FOURIERCOEFFSMML(SAVEB,SAVEA,PATOMS,L,KWIDTH,PIMML,YMLB,YMLA)
+    CALL FOURIERCOEFFS(SAVEB,SAVEA,PATOMS,L,KWIDTH,PIMML,YMLB,YMLA)
     DO J=0,L
         DO M2=-J,J
             DO M1=-J,J
@@ -930,7 +823,7 @@ IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN
             SAVEA(3*J2-2:3*J2)=-COORDSA(3*IND2-2:3*IND2)
             SAVEB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
         ENDDO
-        CALL FOURIERCOEFFSMML(SAVEB,SAVEA,PATOMS,L,KWIDTH,PIMML,YMLB,YMLA)
+        CALL FOURIERCOEFFS(SAVEB,SAVEA,PATOMS,L,KWIDTH,PIMML,YMLB,YMLA)
         DO J=0,L
             DO M2=-J,J
                 DO M1=-J,J
@@ -954,6 +847,8 @@ IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN
         DISTANCE = DISTSAVE
         DIST2 = DIST2SAVE
         RMATBEST = RMATSAVE
+        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
+    &   'fastoverlap> better alignment with no-inversion, distance=', distance
     ENDIF
 ELSE
     IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> not inverting geometry for comparison with target'
@@ -963,10 +858,11 @@ ELSE
     RMATBEST = RMATSAVE
 ENDIF
 
-IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> overall best distance=', distance
-IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> overall best rotation matrix:'
-IF (DEBUG) WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
-
+IF (DEBUG) THEN
+    WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> overall best distance=', distance
+    WRITE(MYUNIT,'(A)') 'fastoverlap> overall best rotation matrix:'
+    WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
+ENDIF
 
 PERMINVOPT = PERMINVOPTSAVE
 NOINVERSION = NOINVERSIONSAVE
@@ -1000,35 +896,42 @@ INTEGER J, J1
 
 CALL CALCOVERLAP(IMML, OVERLAP, L, ILMM)
 CALL FINDROTATIONS(OVERLAP, L, ANGLES, AMPLITUDES, NROTATIONS, DEBUG)
-IF (DEBUG) WRITE(MYUNIT,'(A,I3,A)') 'fastoverlap.ALIGNCOEFFS> found ', NROTATIONS, ' candidate rotations'
+IF (DEBUG) WRITE(MYUNIT,'(A,I3,A)') 'fastoverlap> found ', NROTATIONS, ' candidate rotations'
 
 
 BESTDIST = HUGE(BESTDIST)
 DUMMYB(:) = COORDSB(:3*NATOMS)
 
 DO J=1,NROTATIONS
+
     CALL EULERM(ANGLES(J,1),ANGLES(J,2),ANGLES(J,3),RMATSAVE)
     DO J1=1,NATOMS
         DUMMYA(J1*3-2:J1*3) = MATMUL(RMATSAVE, COORDSA(J1*3-2:J1*3))
     ENDDO
 
-    IF (DEBUG) WRITE(MYUNIT,'(A,I3)') 'fastoverlap> testing rotation', J
-    IF (DEBUG) WRITE(MYUNIT,'(A,3F20.10)') 'fastoverlap> with Euler angles:'
-    IF (DEBUG) WRITE(MYUNIT, '(3F20.10)') ANGLES(J,:)
-    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> testing rotation matrix:'
-    IF (DEBUG) WRITE(MYUNIT, '(3F20.10)') RMATSAVE(1:3,1:3)
+    IF (DEBUG) THEN
+        WRITE(MYUNIT,'(A,I3,A)') 'fastoverlap> testing rotation', J, 'with Euler angles:'
+        WRITE(MYUNIT, '(3F20.10)') ANGLES(J,:)
+        WRITE(MYUNIT,'(A)') 'fastoverlap> testing rotation matrix:'
+        WRITE(MYUNIT, '(3F20.10)') RMATSAVE(1:3,1:3)
+    ENDIF
 
     CALL MINPERMDIST(DUMMYB,DUMMYA,NATOMS,DEBUG,0.D0,0.D0,0.D0,.FALSE.,.FALSE.,DISTANCE,DIST2,.FALSE.,RMAT)
     IF (DISTANCE.LT.BESTDIST) THEN
         BESTDIST = DISTANCE
-        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> found new best alignment distance=', BESTDIST
         XBESTA(1:3*NATOMS) = DUMMYA(1:3*NATOMS)
-!        CALL EULERINVM(ANGLES(J,1),ANGLES(J,2),ANGLES(J,3),RMATSAVE)
         RMATBEST = MATMUL(RMAT,RMATSAVE)
-        IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> new best rotation matrix:'
-        IF (DEBUG) WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
-    ELSE
-        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> best aligment distance found=', BESTDIST
+
+        IF (DEBUG) THEN
+            WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> new best alignment distance=', BESTDIST
+            WRITE(MYUNIT,'(A)') 'fastoverlap> new best rotation matrix:'
+            WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
+        END IF
+
+    ELSE IF (DEBUG) THEN
+        WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> best aligment distance found=', BESTDIST
+        WRITE(MYUNIT,'(A)') 'fastoverlap> best rotation matrix found:'
+        WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
     ENDIF
 ENDDO
 
