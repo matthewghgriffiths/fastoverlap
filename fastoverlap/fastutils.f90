@@ -492,21 +492,21 @@ INTEGER, INTENT(IN) :: INFO
 
 SELECT CASE (INFO)
 CASE(0)
-    WRITE(MYUNIT,'(A)') "improper input parameters."
+    WRITE(MYUNIT,'(A)') "  improper input parameters."
 CASE(1)
-    WRITE(MYUNIT,'(A)') "algorithm estimates that the relative error in the sum of squares is at most TOL."
+    WRITE(MYUNIT,'(A)') "  algorithm estimates that the relative error in the sum of squares is at most TOL."
 CASE(2)
-    WRITE(MYUNIT,'(A)') "algorithm estimates that the relative error between X and the solution is at most TOL."
+    WRITE(MYUNIT,'(A)') "  algorithm estimates that the relative error between X and the solution is at most TOL."
 CASE(3)
-    WRITE(MYUNIT,'(A)') "conditions for INFO = 1 and INFO = 2 both hold."
+    WRITE(MYUNIT,'(A)') "  conditions for INFO = 1 and INFO = 2 both hold."
 CASE(4)
-    WRITE(MYUNIT,'(A)') "FVEC is orthogonal to the columns of the jacobian to machine precision."
+    WRITE(MYUNIT,'(A)') "  FVEC is orthogonal to the columns of the jacobian to machine precision."
 CASE(5)
-    WRITE(MYUNIT,'(A)') "number of calls to FCN with IFLAG = 1 has reached 100*(N+1)."
+    WRITE(MYUNIT,'(A)') "  number of calls to FCN with IFLAG = 1 has reached 100*(N+1)."
 CASE(6)
-    WRITE(MYUNIT,'(A)') "TOL is too small.  No further reduction in the sum of squares is possible."
+    WRITE(MYUNIT,'(A)') "  TOL is too small.  No further reduction in the sum of squares is possible."
 CASE(7)
-    WRITE(MYUNIT,'(A)') "TOL is too small.  No further improvement in the approximate solution X is possible. "
+    WRITE(MYUNIT,'(A)') "  TOL is too small.  No further improvement in the approximate solution X is possible. "
 END SELECT
 
 END SUBROUTINE PRINTLMDERERROR
@@ -541,15 +541,20 @@ DO WHILE(NFOUND.EQ.0)
     DO N=1,NPEAKS
         CALL FINDPEAK(FSPACECOPY, WIDTH, X, INFO, DEFAULTTOL, FMAX)
 
-        IF(INFO.EQ.4.OR.INFO.EQ.5) THEN
+        IF(INFO.EQ.0.OR.INFO.EQ.5) THEN
             IF (DEBUG) THEN
-                WRITE(MYUNIT,'(A,I2)') "WARNING - fastoverlaputils peak fitting attempt failed with error:"
+                WRITE(MYUNIT,'(A)') "fastoverlaputils> WARNING - FINDPEAK failed with error:"
                 CALL PRINTLMDERERROR(INFO)
             ENDIF
             EXIT
         ELSE
-            ! Find the location of the peak and subtract this peak from the
-            ! copy of the data
+            IF(INFO.EQ.4.OR.INFO.EQ.6.OR.INFO.EQ.7) THEN
+                IF (DEBUG) THEN
+                    WRITE(MYUNIT,'(A)') "fastoverlaputils> WARNING - FINDPEAK ended with message"
+                    CALL PRINTLMDERERROR(INFO)
+                ENDIF
+            ENDIF
+! Find the location of the peak and subtract this peak from the copy of the data
             NFOUND = NFOUND + 1
             PEAK = (X(9:11) - WIDTH - 1 + FMAX)
             PEAKS(N,:) = PEAK
@@ -562,6 +567,10 @@ DO WHILE(NFOUND.EQ.0)
     ! If we've failed to find any peaks, increase the size of the box and start again
     IF (NFOUND.EQ.0) THEN
         WIDTH = WIDTH + 1
+        IF (WIDTH.GT.(MINVAL(FSHAPE)/2)) THEN
+            WRITE(MYUNIT,'(A)')  "ERROR fastoverlaputils-FINDPEAKS subroutine failed to find any peaks"
+            STOP
+        ENDIF
     ENDIF
 ENDDO
 
