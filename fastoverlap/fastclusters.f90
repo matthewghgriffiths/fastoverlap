@@ -96,7 +96,8 @@
 
 ! EXTERNAL SUBROUTINES
 !    MINPERMDIST (minpermdist.f90) depends on (bulkmindist.f90,minperm.f90,newmindist.f90,orient.f90)
-
+!    XDNRMP (legendre.f90)
+!        Needed to calculate Legendre polynomials
 !***********************************************************************
 
 ! EXTERNAL MODULES
@@ -195,11 +196,13 @@ ENDDO
 
 END SUBROUTINE HARMONICNL
 
-SUBROUTINE RYML(COORD, R, YML, L)
+SUBROUTINE RYML2(COORD, R, YML, L)
 
 ! Calculates the Spherical Harmonics associated with coordinate COORD
 ! up to L, returns R, the distance COORD is from origin
 ! Calculates value of Legendre Polynomial Recursively
+
+! UNSTABLE WHEN Z CLOSE TO 0 OR 1
 
 IMPLICIT NONE
 
@@ -216,12 +219,6 @@ R = (COORD(1)**2+COORD(2)**2+COORD(3)**2)**0.5
 PHI = ATAN2(COORD(2), COORD(1))
 Z = COORD(3)/R
 SQRTZ = SQRT(1.D0-Z**2)
-
-! Calculating Factorials
-FACTORIALS(0) = 1.D0
-DO J=1,2*L
-    FACTORIALS(J) = J*FACTORIALS(J-1)
-ENDDO
 
 !Calculating Associate Legendre Function
 YML = CMPLX(0.D0,0.D0, 8)
@@ -257,9 +254,9 @@ DO J=1,L
     ENDDO
 ENDDO
 
-END SUBROUTINE RYML
+END SUBROUTINE RYML2
 
-SUBROUTINE RYML2(COORD, R, YML, L)
+SUBROUTINE RYML(COORD, R, YML, L)
 
 ! Calculates the Spherical Harmonics associated with coordinate COORD
 ! up to L, returns R, the distance COORD is from origin
@@ -279,13 +276,6 @@ COMPLEX*16 EXPIM(-L:L)
 R = (COORD(1)**2+COORD(2)**2+COORD(3)**2)**0.5
 PHI = ATAN2(COORD(2), COORD(1))
 Z = COORD(3)/R
-SQRTZ = SQRT(1.D0-Z**2)
-
-! Calculating Factorials
-FACTORIALS(0) = 1.D0
-DO J=1,2*L
-    FACTORIALS(J) = J*FACTORIALS(J-1)
-ENDDO
 
 !Calculating Associate Legendre Function
 YML = CMPLX(0.D0,0.D0, 8)
@@ -298,26 +288,10 @@ DO J=0, L
     CALL XDNRMP(J,0,J,Z,1,PLM(0:J),IPN(0:J),ISIG)
     YML(0:J,J) = PLM(0:J) * FACT
     DO M=1,J
-        YML(-M,J) = YML(M,J) * (-1)**M
+        YML(-M,J) = YML(M,J)
+        YML(M,J) = YML(-M,J) * (-1)**M
     ENDDO
 ENDDO
-
-!! Initialising Recurrence for Associated Legendre Polynomials
-!! Calculating normalised Legendre Polynomials for better numerical stability
-!! Pnorm^m_l = \sqrt{(l-m)!/(l+m)!} P^m_l
-!DO J=0, L-1
-!    YML(J+1,J+1) = - SQRT((2.D0*J+1.D0)/(2.D0*J+2.D0)) * SQRTZ* YML(J,J)
-!    ! Calculating first recurrence term
-!    YML(J, J+1) = -SQRT(2.D0*(J+1))*Z/SQRTZ * YML(J+1, J+1)
-!ENDDO
-!
-!! Recurrence for normalised Associated Legendre Polynomials
-!DO J=1,L
-!    DO M=J-1,-J+1,-1
-!        SQRTMJ = SQRT((J+M)*(J-M+1.D0))
-!        YML(M-1, J) = -2*M*Z/SQRTMJ/SQRTZ * YML(M, J) - SQRT((J-M)*(J+M+1.D0))/SQRTMJ * YML(M+1,J)
-!    ENDDO
-!ENDDO
 
 ! Calculating exp(imPHI) component
 DO M=-L,L
@@ -328,11 +302,11 @@ ENDDO
 DO J=1,L
     DO M=-J,J
         INDM0 = MODULO(M, 2*L+1)
-        YML(M,J) = EXPIM(M)*YML(M,J) * SQRT((2.D0*J+1.D0))
+        YML(M,J) = EXPIM(M)*YML(M,J) !* SQRT((2.D0*J+1.D0))
     ENDDO
 ENDDO
 
-END SUBROUTINE RYML2
+END SUBROUTINE RYML
 
 SUBROUTINE HARMONICCOEFFS(COORDS, NATOMS, CNML, N, L, HWIDTH, KWIDTH)
 
@@ -1030,4 +1004,4 @@ INCLUDE "minpermdist.f90"
 INCLUDE "minperm.f90"
 INCLUDE "newmindist.f90"
 INCLUDE "orient.f90"
-!INCLUDE "fcnpack.f90"
+INCLUDE "legendre.f90"
