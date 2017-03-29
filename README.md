@@ -9,6 +9,7 @@ Algorithms for fast alignment of structures in finite and periodic systems.
 
 1. fortran compiler
 2. fftw
+3. lapack
 
 ### python packages:
 

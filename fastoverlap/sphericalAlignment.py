@@ -419,6 +419,13 @@ class SphericalAlignFortran(BaseSphericalAlignment):
         Each array in perm represents a different permutation group
     Natoms : int, optional
         Number of atoms
+        
+    Notes:
+    ---------
+    
+    Be very careful about setting perm/Natoms, as if this is not properly set 
+    then you will get segfaults. Also be careful about using this object in
+    tandem 
     """
     def __init__(self, scale=0.3, Jmax=15, perm=None, Natoms=None):
         self.scale=scale
@@ -481,12 +488,13 @@ class SphericalAlignFortran(BaseSphericalAlignment):
         """
         if perm is not None:
             self.setPerm(perm)
-        elif self.Natoms is None:
+        elif len(pos1) != self.Natoms:
             self.Natoms = len(pos1)
             self.setPerm([np.arange(self.Natoms)])
             
         coordsb = np.asanyarray(pos1).flatten()
         coordsa = np.asanyarray(pos2).flatten()
+        self.fast.clusterfastoverlap.setcluster()
         self.fast.commons.perminvopt = invert
         args = (coordsb,coordsa,debug,self.Jmax,self.scale,nrot)
         dist, _, rmatbest = self.fast.clusterfastoverlap.align(*args)
@@ -514,7 +522,6 @@ class SphericalHarmonicAlignFortran(BaseSphericalAlignment):
         self.harmscale=harmscale
         self.nmax=nmax
         self.fast = fastclusters
-        self.fast.clusterfastoverlap.setcluster()
         self.Natoms = Natoms
         if perm is not None:
             self.setPerm(perm)
@@ -571,38 +578,121 @@ class SphericalHarmonicAlignFortran(BaseSphericalAlignment):
         """
         if perm is not None:
             self.setPerm(perm)
-        elif self.Natoms is None:
+        elif len(pos1) != self.Natoms:
             self.Natoms = len(pos1)
             self.setPerm([np.arange(self.Natoms)])
             
         coordsb = np.asanyarray(pos1).flatten()
         coordsa = np.asanyarray(pos2).flatten()
+        self.fast.clusterfastoverlap.setcluster()
         self.fast.commons.perminvopt = invert
         args = (coordsb,coordsa,debug,self.nmax,self.Jmax,self.harmscale,self.scale,nrot)
         dist, _, rmatbest = self.fast.clusterfastoverlap.alignharm(*args)
         return dist, coordsb.reshape(self.Natoms,3), coordsa.reshape(self.Natoms,3), rmatbest
         
-if  __name__ == '__main__':
+if __name__ == "__main__":
+    import os
+    import csv
+    datafolder = "../examples/LJ38"
+    def readFile(filename):
+        with open(filename, 'rb') as f:
+            reader = csv.reader(f, delimiter=' ')
+            dist = [map(float, row) for row in reader]
+        return np.array(dist)
+    
+    pos1 = readFile(os.path.join(datafolder, 'coords'))
+    pos2 = readFile(os.path.join(datafolder, 'finish'))
+    
+    natoms = 38
     scale = 0.3
-    Jmax = 7
-    Nmax = 15
-    rot = np.random.random((3,)) * np.array([2*pi, pi, 2*pi])
-    pos1 = np.random.normal(size=(60,3))*2
-    pos1 -= pos1.mean(0)[None,:]
-    pos2 = pos1.dot(EulerM(*rot).T)
-    #
+    Jmax = 14
+    Nmax = 20
+    harmscale = 1.0
+    
     soap = SphericalAlign(scale, Jmax)
-    harm = SphericalHarmonicAlign(scale, 1.0, Nmax, Jmax)
+    harm = SphericalHarmonicAlign(scale, harmscale, Nmax, Jmax)
     if have_fortran:
         soapf = SphericalAlignFortran(scale, Jmax)
-        harmf = SphericalHarmonicAlignFortran(scale, Jmax=Jmax, harmscale=1.0, nmax=Nmax)
+        harmf = SphericalHarmonicAlignFortran(scale, Jmax=Jmax, harmscale=harmscale, nmax=Nmax)
+    
+    print 'testing alignment on example LJ38 data, distance should = 1.4767'
+    print 'SphericalAlign                Alignment:', soap(pos1, pos2)[0]
+    print 'SphericalHarmonicAlign        Alignment:', harm(pos1, pos2)[0]
+    if have_fortran:
+        print 'SphericalAlignFortran         Alignment:', soapf(pos1, pos2)[0]
+        print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos1, pos2)[0]
+        
+    print ''
+    print 'Checking inversion isomers'
+    
+    print 'SphericalAlign                Alignment:', soap(pos1, -pos2)[0]
+    print 'SphericalHarmonicAlign        Alignment:', harm(pos1, -pos2)[0]
+    if have_fortran:
+        print 'SphericalAlignFortran         Alignment:', soapf(pos1, -pos2)[0]
+        print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos1, -pos2)[0]
+
+    ###########################################################################
+       
+    print ''
+    print 'testing alignment on randomly generated data, distance should ~ 0'
+    # Testing on synthetic data
+    rot = np.random.random((3,)) * np.array([2*pi, pi, 2*pi])
+    rotM = EulerM(*rot)
+    pos3 = np.random.normal(size=(38,3))*2
+    pos3 -= pos3.mean(0)[None,:]
+    pos4 = pos3.dot(rotM.T)
+    
+    print 'SphericalAlign                Alignment:', soap(pos3, pos4)[0]
+    print 'SphericalHarmonicAlign        Alignment:', harm(pos3, pos4)[0]
+    if have_fortran:
+        print 'SphericalAlignFortran         Alignment:', soapf(pos3, pos4)[0]
+        print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos3, pos4)[0]
+    
+    print ''
+    print 'Checking inversion isomers'
+    
+    print 'SphericalAlign                Alignment:', soap(pos3, -pos4)[0]
+    print 'SphericalHarmonicAlign        Alignment:', harm(pos3, -pos4)[0]
+    if have_fortran:
+        print 'SphericalAlignFortran         Alignment:', soapf(pos3, -pos4)[0]
+        print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos3, -pos4)[0]
+        
+    print ''
+    print 'Comparing rotation angles, Euler angles:'
+    print rot
+    print 'Rotation matrix:'
+    print rotM.T
     soft = SOFT(Jmax+1)
-    # res = soap.calcCoeff(pos1, pos2)
-    # fout = soft.iSOFT(res.conj()).real
-    res = soap.calcSO3Coeffs(pos1, pos2)
+    res = soap.calcSO3Coeffs(pos3, pos4)
     fout = soft.iSOFT(res).real
     R = soft.indtoEuler(findMax(fout))
-    print rot, R
-    #
-    print soap(pos1, pos2)[0], harm(pos1, pos2)[0]
-    print soap(pos1, -pos2)[0], harm(pos1, -pos2)[0]
+    print 'Euler angles from obtained from SOFT'
+    print R
+    if have_fortran:
+        print 'Rotation matrix from minpermdist'
+        print soapf(pos3, -pos4)[3]
+        
+#if  __name__ == '__main__':
+#    scale = 0.3
+#    Jmax = 7
+#    Nmax = 15
+#    rot = np.random.random((3,)) * np.array([2*pi, pi, 2*pi])
+#    pos1 = np.random.normal(size=(60,3))*2
+#    pos1 -= pos1.mean(0)[None,:]
+#    pos2 = pos1.dot(EulerM(*rot).T)
+#    #
+#    soap = SphericalAlign(scale, Jmax)
+#    harm = SphericalHarmonicAlign(scale, 1.0, Nmax, Jmax)
+#    if have_fortran:
+#        soapf = SphericalAlignFortran(scale, Jmax)
+#        harmf = SphericalHarmonicAlignFortran(scale, Jmax=Jmax, harmscale=1.0, nmax=Nmax)
+#    soft = SOFT(Jmax+1)
+#    # res = soap.calcCoeff(pos1, pos2)
+#    # fout = soft.iSOFT(res.conj()).real
+#    res = soap.calcSO3Coeffs(pos1, pos2)
+#    fout = soft.iSOFT(res).real
+#    R = soft.indtoEuler(findMax(fout))
+#    print rot, R
+#    #
+#    print soap(pos1, pos2)[0], harm(pos1, pos2)[0]
+#    print soap(pos1, -pos2)[0], harm(pos1, -pos2)[0]

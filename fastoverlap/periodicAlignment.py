@@ -564,11 +564,6 @@ if False:
         print 'Timing Fortran implementation'
         print  timeit.timeit("overlap_f.align(pos1, pos2,1)", setup="from __main__ import overlap_f, pos1, pos2")    
         
-    
-    """
-    Testing Run time in Ipython
-    %prun dists, aligned = overlap.alignGroup(coords13, True)
-    """
         
         
         
