@@ -343,6 +343,38 @@ ENDDO
 
 END SUBROUTINE HARMONICCOEFFS
 
+SUBROUTINE HARMONICCOEFFSPERM(COORDS, NATOMS, CNML, N, L, HWIDTH, KWIDTH, NPERMGROUP)
+
+!
+! For a set of Gaussian Kernels of width KWIDTH at COORDS, 
+! this will calculate the coefficients of the isotropic quantum harmonic basis
+! cnlm with length scale HWIDTH up to N and L.
+! Returns coefficients of the different permutations groups
+!
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NATOMS, N, L, NPERMGROUP
+DOUBLE PRECISION, INTENT(IN) :: COORDS(3*NATOMS), HWIDTH, KWIDTH
+COMPLEX*16, INTENT(OUT) :: CNML(0:N,-L:L,0:L,1:NPERMGROUP)
+
+DOUBLE PRECISION DUMMY(3*NATOMS)
+INTEGER J1, J2, IND2, NDUMMY, PATOMS
+
+! Calculating overlap integral separately for each permutation group
+NDUMMY=1
+DO J1=1,NPERMGROUP
+    PATOMS=NPERMSIZE(J1)
+    DO J2=1,PATOMS
+        IND2 = PERMGROUP(NDUMMY+J2-1)
+        DUMMY(3*J2-2:3*J2)=COORDS(3*IND2-2:3*IND2)
+    ENDDO
+    CALL HARMONICCOEFFS(DUMMY, PATOMS, CNML(:,:,:,J1), N, L, HWIDTH, KWIDTH)
+    NDUMMY=NDUMMY+PATOMS
+ENDDO
+
+END SUBROUTINE HARMONICCOEFFSPERM
+
 SUBROUTINE DOTHARMONICCOEFFS(C1NML, C2NML, N, L, IMML)
 
 IMPLICIT NONE
@@ -401,11 +433,11 @@ DO IA=1,NATOMS
     DO IB=1,NATOMS
         R1R2 = 0.5D0 * RA(IA)*RB(IB)/KWIDTH**2
         CALL SPHI(L, R1R2, K, IL)
-        TMP = FACT*EXPRA(IA)*EXPRB(IB)
+        TMP = FACT*EXPRA(IA)*EXPRB(IB)!*SQRT(PI/2/R1R2)
         DO J=0,L
             DO M2=-L,L
                 DO M1=-L,L
-                    IMML(M1,M2,J) = IMML(M1,M2,J) + IL(J)*YMLB(M1,J,IA)*CONJG(YMLA(M2,J,IB))*TMP
+                    IMML(M1,M2,J) = IMML(M1,M2,J) + IL(J)*YMLB(M1,J,IB)*CONJG(YMLA(M2,J,IA))*TMP
                 ENDDO
             ENDDO
         ENDDO
