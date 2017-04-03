@@ -10,7 +10,7 @@ import numpy as np
 from numpy.linalg import norm
 from scipy import median
 
-from utils import find_best_permutation, findMax, _next_fast_len
+from utils import find_best_permutation, findMax, _next_fast_len, findPeaks
 
 try:
     import fastbulk
@@ -26,7 +26,7 @@ class BasePeriodicAlignment(object):
         disps = self.findDisps(pos1, pos2)
         return self.refine(pos1, pos2, disps)
     ##
-    def refine(self, x, y, disps):
+    def refine(self, x, y, disps,niter=10):
         """Given a displacement vector between two non-permutationally aligned
         configurations, this will refine the displacement vector by 
         performing a permutational alignment followed by a calculation of the median
@@ -41,6 +41,8 @@ class BasePeriodicAlignment(object):
             Coordinate array to align with pos1.
         disps : (...,3) array_like, optional
             Number of different displacements to test
+        niter : integer, optional
+            Number of iterations of alignment refinement.
             
         Returns
         -------
@@ -58,22 +60,25 @@ class BasePeriodicAlignment(object):
         Notes:
         -------
         0 = self.get_dist(pos1, X1)
-        X2 = pos2[perm] - disp[None,:]
+        0 = self.get_dist(X2, pos2[perm] - disp[None,:])
         """
         disps = np.atleast_2d(disps)
         distperm = [self.Hungarian(x, y - disp[None,:]) + (disp,)
                     for disp in disps]
-        dist, perm, disp = min(distperm, key=lambda x: x[0])
-        dxs = self.get_disp(x, (y-disp)[perm])
-        mediandx = median(dxs, axis=0)
-        disp += mediandx
-        perm = self.Hungarian(x, y - disp[None,:])[1]
-        pos1 = self.periodic(x, True)
-        pos2 = (y - disp)[perm]
-        ## subtract mean displacement vector
-        dx = self.get_disp(pos1, pos2).mean(0)
-        disp -= dx
-        pos2 += dx[None,:]
+        dist, saveperm, disp = min(distperm, key=lambda x: x[0])
+        for i in range(niter):
+            dxs = self.get_disp(x, (y-disp)[saveperm])
+            mediandx = median(dxs, axis=0)
+            disp += mediandx
+            perm = self.Hungarian(x, y - disp[None,:])[1]
+            pos1 = self.periodic(x, True)
+            pos2 = (y - disp)[perm]
+            ## subtract mean displacement vector
+            dx = self.get_disp(pos1, pos2).mean(0)
+            disp -= dx
+            pos2 += dx[None,:]
+            if all(p1==p2 for p1, p2 in zip(saveperm, perm)):
+                break
         self.periodic(pos2)
         dist = self.get_dist(pos1, pos2)
         return dist, pos1, pos2, perm, disp
@@ -332,7 +337,7 @@ class FourierAlign(BasePeriodicAlignment):
         logLikes[:] = logLikes[argsort]/nperm
         disps -= np.round((disps-self.origin)/self.boxvec) * self.boxvec[None,:]
         return disps, logLikes
-    ##
+
     def findDisps(self, pos1, pos2):
         return self.FourierShift(pos1, pos2)[0]
     
@@ -377,8 +382,7 @@ class PeriodicAlign(BasePeriodicAlignment):
         self.factor = 2 * (np.pi*self.scale**2)**(-self.dim*0.5)*self.scale**2 / np.prod(self.boxvec)
         self.setks(maxk)
         self.setPos(self.pos1, self.pos2)
-        #self.setPotentials()
-    ##
+
     def setks(self, maxk):
         self.n = int(np.ceil(2*np.pi/self.boxvec.min()*maxk))
         ps = np.indices((self.n*2+1,)*self.dim) - self.n
@@ -391,20 +395,35 @@ class PeriodicAlign(BasePeriodicAlignment):
         self.fshape = tuple(_next_fast_len(int(d)) for d in shape)
         self.f = np.empty(self.fshape, dtype=complex)
         self.fabs = np.empty(self.fshape, dtype=float)
-    ##
+
     def setScale(self, scale):
         self.scale = scale
         self.factor = 2 * (np.pi*self.scale**2)**(-self.dim*0.5)*self.scale**2 / np.prod(self.boxvec)
-    ##
+
     def calcFourierCoeff(self, pos, out=None):
         if out is None:
             out = np.empty((len(self.perm),)+self.absks.shape, dtype=complex)
         for p, C in izip(self.perm, out):
             np.exp(-1j * np.tensordot(pos[p,:], self.ks, [1,0])).sum(0, out=C)
-            C[(self.n,)*self.dim] = 0
+            # C[(self.n,)*self.dim] = 0
         return out
-    ##
+
     def setPos(self, pos1=None, pos2=None, Cs=None):
+        """ Calculates Fourier coefficients and overlap arrays of two
+        structures, if pos1 or pos2 are not specified then uses the last
+        coordinates tested, ff the fourier coefficients have already been
+        calculated then these can be passed
+
+        Parameters
+        ----------
+        pos1 : (Natoms, 3) array_like
+            Coordinate array.
+        pos2 : (Natoms, 3) array_like
+            Coordinate array to align with pos1.
+        Cs : ((nperm,2*n+1,2*n+1,2*n+1), (nperm,2*n+1,2*n+1,2*n+1)) array_like,
+                optional
+            List/Tuple of the Fourier Coefficients of pos1 and pos2
+        """
         if pos1 is not None:
             self.pos1 = pos1
         if pos2 is not None:
@@ -414,22 +433,32 @@ class PeriodicAlign(BasePeriodicAlignment):
             self.calcFourierCoeff(pos2, self.C2)
         else:
             self.C1, self.C2 = Cs
-        self.Csum = (((self.C1*self.C1.conj()).real + (self.C2*self.C2.conj()).real) * 
-                     np.exp(-self.absks[None,:]**2 * (self.scale**2))).real.sum() * 0.5 * self.factor
-        (self.C1 * self.C2.conj() * np.exp(-self.absks**2 * (self.scale**2))).sum(0, out=self.C)
+        self.Csum = (((self.C1*self.C1.conj()).real + 
+                      (self.C2*self.C2.conj()).real) * 
+                      np.exp(-self.absks[None,:]**2 * 
+                      (self.scale**2))).real.sum() * 0.5 * self.factor
+        (self.C1 * self.C2.conj() * 
+         np.exp(-self.absks**2 * (self.scale**2))).sum(0, out=self.C)
         self.f[:] = np.fft.fftn(self.C, self.fshape)
         np.abs(self.f, out=self.fabs)
-    ##
-    def findDisps(self, pos1, pos2, Cs=None):
+
+    def findDisps(self, pos1, pos2, Cs=None, npeaks=2, width=2):
         self.setPos(pos1, pos2, Cs)
+#        disps = findPeaks(self.fabs, npeaks, width)[0]
+#        if len(disps):
+#            disps *= self.boxvec / self.fabs.shape
+#        else:
+#            disp = findMax(self.fabs) * self.boxvec / self.fabs.shape
+#            disps = disp[None,:]
+#        return disps
         disp = findMax(self.fabs) * self.boxvec / self.fabs.shape
         return disp[None,:]
-    ##
-    def align(self, pos1, pos2, Cs=None):
-        disps = self.findDisps(pos1, pos2, Cs)
+
+    def align(self, pos1, pos2, Cs=None, npeaks=2, width=2):
+        disps = self.findDisps(pos1, pos2, Cs, npeaks, width)
         return self.refine(pos1, pos2, disps)
-    ##
-    def alignGroup(self, coords, keepCoords=False):
+
+    def alignGroup(self, coords, keepCoords=False, npeaks=1, width=2):
         n = len(coords)
         if keepCoords:
             aligned = np.empty((2, n, n, self.Natoms, self.dim))
@@ -437,7 +466,8 @@ class PeriodicAlign(BasePeriodicAlignment):
         dists = np.zeros((n, n))
         for i, (pos1, c1) in enumerate(izip(coords, coeffs)):
             for j, (pos2, c2) in enumerate(izip(coords, coeffs)):
-                dist, x1, x2 = self.align(pos1, pos2, [c1,c2])[:3]
+                dist, x1, x2 = self.align(pos1, pos2, [c1,c2],
+                                          npeaks, width)[:3]
                 if keepCoords:
                     aligned[0,i,j,...] = x1
                     aligned[1,i,j,...] = x2
@@ -446,12 +476,12 @@ class PeriodicAlign(BasePeriodicAlignment):
             return dists, aligned
         else:
             return dists
-        
-            
+
+
 class PeriodicAlignFortran(BasePeriodicAlignment):
-    """ Class for aligning two periodic structures in a cubic cell, wrapper for
-    FORTRAN subroutines to do the numerical heavy-lifting
-    
+    """ Class for aligning two periodic structures in a cubic cell,
+    wrapper for FORTRAN subroutines to do the numerical heavy-lifting
+
     Parameters:
     ----------
     Natoms : int
@@ -464,34 +494,38 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
     permlist : sequence of arrays,optional
         Each array in perm represents a different permutation group
     """
-    def __init__(self, Natoms, boxVec, scale=0, perm=None):       
+
+    def __init__(self, Natoms, boxVec, scale=0, perm=None):
         self.Natoms = Natoms
         self.boxVec = np.array(boxVec, dtype=float)
         self.scale = scale
         self.fast = fastbulk
-        self.fast.bulkfastoverlap.setbulk()
+        self.bulk = self.fast.bulkfastoverlap
+        self.bulk.setbulk()
         if perm is None:
             self.setPerm([np.arange(self.Natoms)])
         else:
             self.setPerm(perm)
-    ##
+
     def setPerm(self, perm):
         if len(perm):
             self.perm = perm
             self.nperm = len(perm)
             self.npermsize = map(len, perm)
-            self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
+            self.permgroup = np.concatenate([np.asanyarray(p)+1
+                                             for p in perm])
         else:
             self.nperm = 1
             self.npermsize = [self.Natoms]
             self.permgroup = np.arange(self.Natoms) + 1
             self.perm = [self.permgroup]
-        self.fast.fastoverlaputils.setperm(self.Natoms, self.permgroup, self.npermsize)
-    ##
+        self.fast.fastoverlaputils.setperm(self.Natoms, self.permgroup,
+                                           self.npermsize)
+
     def align(self, pos1, pos2, ndisps=10, perm=None, ohcell=False):
         """ Align two periodic structures, aligns and permutes pos2 to match
         pos1 as closely as possible.
-        
+
         Parameters
         ----------
         pos1 : (Natoms, 3) array_like
@@ -504,7 +538,7 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
             Each array in perm represents a different permutation group
         ohcell : bool
             If true tests all 48 possible octahedral symmetries
-        
+
         Returns
         -------
         distance : float
@@ -521,49 +555,89 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         coordsb = np.asanyarray(pos1).flatten()
         coordsa = np.asanyarray(pos2).flatten()
         self.fast.commons.ohcellt = ohcell
-        args = (coordsb, coordsa,False,
-                self.boxVec[0],self.boxVec[1],self.boxVec[2],self.scale,ndisps)
+        args = (coordsb, coordsa, False,
+                self.boxVec[0], self.boxVec[1], self.boxVec[2],
+                self.scale, ndisps)
         dist = self.fast.bulkfastoverlap.align(*args)[0]
         perm = self.fast.commons.bestperm.copy()
-        return dist, coordsb.reshape(self.Natoms,3), coordsa.reshape(self.Natoms,3), perm
-    
+        return dist, coordsb.reshape(self.Natoms, 3),\
+            coordsa.reshape(self.Natoms, 3), perm
+
+    def alignGroup(self, coords, ndisps=1):
+        """ Aligns a list of coordinates with themselves,
+
+        Parameters
+        ----------
+        coords : (nlist, Natoms, 3) array_like
+            list of coordinates that are being compared
+        ndisps : int, optional
+            number of displacements to test, runtime approximately
+            proportional to ndisps
+
+        Returns
+        -------
+        dists : (nlist, nlist) array_like
+            Matrix of pair wise displacements
+            (only calculated for the upper half)
+            of the matrix
+        aligned : (Natoms, 3, nlist, nlist) array_like
+            Matrix of the aligned coordinates
+        """
+        coordslist = np.asanyarray(coords)
+        nlist, natoms, dim = coordslist.shape
+        assert dim == 3
+        assert natoms == self.Natoms
+        coordslist = coordslist.reshape(nlist, -1).T
+        s, nwave, ncoeff = self.bulk.calcdefaults(natoms, *self.boxVec)
+        if self.scale == 0:
+            scale = s
+        else:
+            scale = s
+        dists, aligned = self.bulk.aligngroup(
+            coords, coords, False,
+            self.boxVec[0], self.boxVec[1], self.boxVec[2],
+            scale, ndisps, nwave, ncoeff, True)
+        aligned = aligned.reshape(natoms, 3, nlist, nlist)
+        return dists, aligned
+
+
 if __name__ == "__main__":
     print 'testing alignment on example data, distance should = 1.559'
     import os
     import csv
     datafolder = "../examples/BLJ256"
+
     def readFile(filename):
         with open(filename, 'rb') as f:
             reader = csv.reader(f, delimiter=' ')
             dist = [map(float, row) for row in reader]
         return np.array(dist)
-    
+
     pos1 = readFile(os.path.join(datafolder, 'coords'))
     pos2 = readFile(os.path.join(datafolder, 'finish'))
-    
+
     natoms = 256
     ntypeA = 204
     shape = (natoms, 3)
-    boxSize = np.ones(3)*5.975206329 
+    boxSize = np.ones(3)*5.975206329
     permlist = [np.arange(ntypeA), np.arange(ntypeA, natoms)]
     overlap = PeriodicAlign(256, boxSize, permlist)
     align = FourierAlign(256, boxSize, permlist)
     if have_fortran:
-        overlap_f = PeriodicAlignFortran(256, boxSize, permlist)
-        
+        overlap_f = PeriodicAlignFortran(256, boxSize, perm=permlist)
+
     print 'PeriodicAlign aligment:', overlap(pos1, pos2)[0]
     if have_fortran:
         print 'PeriodicAlignFortran aligment:', overlap_f(pos1, pos2)[0]
-    
+
 
 if False:
     import timeit
     print 'Timing python implementation'
-    print  timeit.timeit("overlap(pos1, pos2)", setup="from __main__ import overlap, pos1, pos2")    
-    if  have_fortran:
+    print timeit.timeit("overlap(pos1, pos2)",
+                        setup="from __main__ import overlap, pos1, pos2")
+    if have_fortran:
         print 'Timing Fortran implementation'
-        print  timeit.timeit("overlap_f.align(pos1, pos2,1)", setup="from __main__ import overlap_f, pos1, pos2")    
-        
-        
-        
-        
+        print timeit.timeit("overlap_f.align(pos1, pos2,1)",
+                            setup=
+                            "from __main__ import overlap_f, pos1, pos2")

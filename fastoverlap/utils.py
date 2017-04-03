@@ -373,6 +373,11 @@ def findPeaks(a, npeaks=10, width=2):
         except ValueError:
             break
     peaks = np.array(peaks)
+    if len(peaks) == 0:
+        peaks = findMax(a)[None,:]
+        amplitude.append(a.max())
+        mean.append(0)
+        sigma.append(np.NaN)
     return peaks, amplitude, mean, sigma, f
     
 def eval_grad_jacobi(n, alpha, beta, x, out=None):

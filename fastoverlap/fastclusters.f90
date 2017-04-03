@@ -34,6 +34,22 @@
 
 ! Subroutines:
 !
+!    ALIGN(COORDSB, COORDSA, NATOMS, DEBUG, L, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
+!        MAIN ALIGNMENT ALGORITHM ROUTINE
+!        KWIDTH is the Gaussian Kernel width, this should probably be set to ~1/3 interatomic separation.
+!        Performs alignment using SO(3) Coefficients calculated directly. 
+!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
+!   
+!    ALIGNHARM(COORDSB, COORDSA, NATOMS, DEBUG, N, L, HWIDTH, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
+!        Performs alignment using SO(3) Coefficients calculated using Quantum Harmonic Oscillator Basis 
+!        KWIDTH is the Gaussian Kernel width,  HWIDTH is the Quantum Harmonic Oscillator Basis length scale
+!        These need to be carefully chosen along with N and L to ensure calculation is stable and accurate.
+!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
+! 
+!    ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROTATIONS,ANGLES)
+!        Primary alignment routine, called by ALIGN1
+!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
+!
 !    HARMONIC0L(L, RJ, SIGMA, R0, RET)
 !        Calculates the Harmonic integral when n=0
 !
@@ -75,22 +91,6 @@
 !    
 !    CHECKKEYWORDS()
 !        Sanity checks for the keywords
-!    
-!    ALIGNHARM(COORDSB, COORDSA, NATOMS, DEBUG, N, L, HWIDTH, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
-!        Performs alignment using SO(3) Coefficients calculated using Quantum Harmonic Oscillator Basis 
-!        KWIDTH is the Gaussian Kernel width,  HWIDTH is the Quantum Harmonic Oscillator Basis length scale
-!        These need to be carefully chosen along with N and L to ensure calculation is stable and accurate.
-!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
-!
-!    ALIGN(COORDSB, COORDSA, NATOMS, DEBUG, L, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
-!        MAIN ALIGNMENT ALGORITHM ROUTINE
-!        KWIDTH is the Gaussian Kernel width, this should probably be set to ~1/3 interatomic separation.
-!        Performs alignment using SO(3) Coefficients calculated directly. 
-!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
-!    
-!    ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROTATIONS,ANGLES)
-!        Primary alignment routine, called by ALIGN1
-!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
 
 !***********************************************************************
 
@@ -98,6 +98,7 @@
 !    MINPERMDIST (minpermdist.f90) depends on (bulkmindist.f90,minperm.f90,newmindist.f90,orient.f90)
 !    XDNRMP (legendre.f90)
 !        Needed to calculate Legendre polynomials
+
 !***********************************************************************
 
 ! EXTERNAL MODULES
@@ -125,6 +126,359 @@ LOGICAL, SAVE :: PERMINVOPTSAVE, NOINVERSIONSAVE
 DOUBLE PRECISION, PARAMETER :: PI = 3.141592653589793D0
 
 CONTAINS
+
+SUBROUTINE ALIGN(COORDSB, COORDSA, NATOMS, DEBUG, L, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
+
+!  COORDSA becomes the optimal alignment of the optimal permutation(-inversion)
+!  isomer. DISTANCE is the residual square distance for the best alignment with 
+!  respect to permutation(-inversion)s as well as orientation and centre of mass.
+!  COORDSA and COORDSB are both centred on the ORIGIN
+
+!  KWIDTH is the width of the Gaussian kernels that are centered on each of the
+!  atomic coordinates, whose overlap integral is maximised to find the optimal
+!  rotations
+
+!  RMATBEST gives the optimal rotation matrix
+
+!  L is the maximum angular momentum degree up to which the SO(3) coefficients 
+!  are calculated number of coefficients that will be calculated = 1/3 (L+1)(2L+1)(2L+3)
+
+!  Number of Calculations for SO(3) calculations ~ O(1/3 (L+1)(2L+1)(2L+3) * NATOMS**2)
+
+USE COMMONS, ONLY: BESTPERM, PERMOPT, PERMINVOPT, NOINVERSION, CHRMMT, AMBERT, AMBER12T
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NATOMS, L
+INTEGER, INTENT(IN) :: NROTATIONS
+LOGICAL, INTENT(IN) :: DEBUG
+DOUBLE PRECISION, INTENT(IN) :: KWIDTH ! Gaussian Kernel width
+DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
+DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2, RMATBEST(3,3)
+
+COMPLEX*16 PIMML(-L:L,-L:L,0:L)
+COMPLEX*16 IMML(-L:L,-L:L,0:L), YMLA(-L:L,0:L,NATOMS), YMLB(-L:L,0:L,NATOMS)
+
+DOUBLE PRECISION SAVEA(3*NATOMS),SAVEB(3*NATOMS),COMA(3),COMB(3)
+DOUBLE PRECISION ANGLES(NROTATIONS,3), DISTSAVE, RMATSAVE(3,3), WORSTRAD, DIST2SAVE
+INTEGER J,J1,J2,M1,M2,IND2,NROT,NDUMMY,INVERT,PATOMS
+INTEGER SAVEPERM(NATOMS), KEEPPERM(NATOMS)
+
+! Checking keywords are set properly
+CALL CHECKKEYWORDS()
+
+! Setting keywords for fastoverlap use of minpermdist, will be reset when exiting program
+PERMINVOPTSAVE = PERMINVOPT
+NOINVERSIONSAVE = NOINVERSION
+PERMINVOPT = .FALSE.
+NOINVERSION = .TRUE.
+
+! Centering COORDSA and COORDSB on the origin
+COMA = 0.D0
+COMB = 0.D0
+DO J=1,NATOMS
+    COMA = COMA + COORDSA(3*J-2:3*J)
+    COMB = COMB + COORDSB(3*J-2:3*J)
+ENDDO
+COMA = COMA/NATOMS
+COMB = COMB/NATOMS
+DO J=1,NATOMS
+    COORDSA(3*J-2:3*J) = COORDSA(3*J-2:3*J) - COMA
+    COORDSB(3*J-2:3*J) = COORDSB(3*J-2:3*J) - COMB
+ENDDO
+
+
+! Calculating overlap integral separately for each permutation group
+IMML = CMPLX(0.D0,0.D0,8)
+NDUMMY=1
+DO J1=1,NPERMGROUP
+    PATOMS=INT(NPERMSIZE(J1),4)
+    DO J2=1,PATOMS
+        IND2 = PERMGROUP(NDUMMY+J2-1)
+        SAVEA(3*J2-2:3*J2)=COORDSA(3*IND2-2:3*IND2)
+        SAVEB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
+    ENDDO
+    CALL FOURIERCOEFFS(SAVEB,SAVEA,PATOMS,L,KWIDTH,PIMML,YMLB,YMLA)
+    DO J=0,L
+        DO M2=-J,J
+            DO M1=-J,J
+            IMML(M1,M2,J) = IMML(M1,M2,J) + PIMML(M1,M2,J)
+            ENDDO
+        ENDDO
+    ENDDO
+    NDUMMY=NDUMMY+NPERMSIZE(J1)
+ENDDO
+
+SAVEA(1:3*NATOMS) = COORDSA(1:3*NATOMS)
+SAVEB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
+
+NROT = NROTATIONS
+CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTSAVE,DIST2SAVE,RMATSAVE,NROT,ANGLES)
+
+IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN 
+    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> inverting geometry for comparison with target'
+    ! Saving non inverted configuration
+    XBESTASAVE(1:3*NATOMS) = SAVEA(1:3*NATOMS)
+
+    ! Calculating overlap integral for inverted configuration
+    NDUMMY=1
+    DO J1=1,NPERMGROUP
+        PATOMS=INT(NPERMSIZE(J1),4)
+        DO J2=1,PATOMS
+            IND2 = PERMGROUP(NDUMMY+J2-1)
+            SAVEA(3*J2-2:3*J2)=-COORDSA(3*IND2-2:3*IND2)
+            SAVEB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
+        ENDDO
+        CALL FOURIERCOEFFS(SAVEB,SAVEA,PATOMS,L,KWIDTH,PIMML,YMLB,YMLA)
+        DO J=0,L
+            DO M2=-J,J
+                DO M1=-J,J
+                    IMML(M1,M2,J) = IMML(M1,M2,J) + PIMML(M1,M2,J)
+                ENDDO
+            ENDDO
+        ENDDO
+        NDUMMY=NDUMMY+NPERMSIZE(J1)
+    ENDDO
+    SAVEA(1:3*NATOMS) = -COORDSA(1:3*NATOMS)
+    SAVEB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
+
+    NROT = NROTATIONS
+    CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROT,ANGLES)
+    IF (DISTANCE.LT.DISTSAVE) THEN
+        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
+    &   'fastoverlap> inversion found better alignment, distance=', distance
+        COORDSA(1:3*NATOMS) = SAVEA(1:3*NATOMS)
+    ELSE
+        COORDSA(1:3*NATOMS) = XBESTASAVE(1:3*NATOMS)
+        DISTANCE = DISTSAVE
+        DIST2 = DIST2SAVE
+        RMATBEST = RMATSAVE
+        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
+    &   'fastoverlap> better alignment with no-inversion, distance=', distance
+    ENDIF
+ELSE
+    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> not inverting geometry for comparison with target'
+    COORDSA(1:3*NATOMS) = SAVEA(1:3*NATOMS)
+    DISTANCE = DISTSAVE
+    DIST2 = DIST2SAVE
+    RMATBEST = RMATSAVE
+ENDIF
+
+IF (DEBUG) THEN
+    WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> overall best distance=', distance
+    WRITE(MYUNIT,'(A)') 'fastoverlap> overall best rotation matrix:'
+    WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
+ENDIF
+
+PERMINVOPT = PERMINVOPTSAVE
+NOINVERSION = NOINVERSIONSAVE
+
+END SUBROUTINE ALIGN
+
+SUBROUTINE ALIGNHARM(COORDSB, COORDSA, NATOMS, DEBUG, N, L, HWIDTH, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
+!  COORDSA becomes the optimal alignment of the optimal permutation(-inversion)
+!  isomer. DISTANCE is the residual square distance for the best alignment with 
+!  respect to permutation(-inversion)s as well as orientation and centre of mass.
+!  COORDSA and COORDSB are both centred on the ORIGIN
+
+!  RMATBEST gives the optimal rotation matrix
+
+!  KWIDTH is the width of the Gaussian kernels that are centered on each of the
+!  atomic coordinates, whose overlap integral is maximised to find the optimal
+!  rotations
+!  L is the maximum angular momentum degree up to which the SO(3) coefficients 
+!  are calculated number of coefficients that will be calculated = 1/3 (L+1)(2L+1)(2L+3)
+
+!  HWIDTH is the lengthscale of the Quantum Harmonic Oscillator Basis
+!  N is the maximum order of the Quantum Harmonic Oscillator basis
+
+!  Number of Calculations for SO(3) calculations ~ O(1/3 (L+1)(2L+1)(2L+3) * NATOMS**2)
+
+USE COMMONS, ONLY: BESTPERM, PERMOPT, PERMINVOPT, NOINVERSION, CHRMMT, AMBERT, AMBER12T
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NATOMS, N, L
+INTEGER, INTENT(IN) :: NROTATIONS
+LOGICAL, INTENT(IN) :: DEBUG
+DOUBLE PRECISION, INTENT(IN) :: HWIDTH, KWIDTH
+DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
+DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2, RMATBEST(3,3)
+
+COMPLEX*16 PIMML(-L:L,-L:L,0:L)
+COMPLEX*16 IMML(-L:L,-L:L,0:L), YMLA(-L:L,0:L,NATOMS), YMLB(-L:L,0:L,NATOMS)
+COMPLEX*16 COEFFSA(0:N,-L:L,0:L,NPERMGROUP), COEFFSB(0:N,-L:L,0:L,NPERMGROUP)
+
+DOUBLE PRECISION SAVEA(3*NATOMS),SAVEB(3*NATOMS)
+DOUBLE PRECISION ANGLES(NROTATIONS,3), DISTSAVE, RMATSAVE(3,3), WORSTRAD, DIST2SAVE
+INTEGER J,J1,J2,M1,M2,IND2,NROT,NDUMMY,INVERT,PATOMS
+INTEGER SAVEPERM(NATOMS), KEEPPERM(NATOMS)
+
+
+! Checking keywords are set properly
+CALL CHECKKEYWORDS()
+
+! Setting keywords for fastoverlap use of minpermdist, will be reset when exiting program
+PERMINVOPTSAVE = PERMINVOPT
+NOINVERSIONSAVE = NOINVERSION
+PERMINVOPT = .FALSE.
+NOINVERSION = .TRUE.
+
+! Calculating overlap integral separately for each permutation group
+IMML = CMPLX(0.D0,0.D0,8)
+NDUMMY=1
+DO J1=1,NPERMGROUP
+    PATOMS=INT(NPERMSIZE(J1),4)
+    DO J2=1,PATOMS
+        IND2 = PERMGROUP(NDUMMY+J2-1)
+        SAVEA(3*J2-2:3*J2)=COORDSA(3*IND2-2:3*IND2)
+        SAVEB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
+    ENDDO
+    CALL HARMONICCOEFFS(SAVEA, PATOMS, COEFFSA(:,:,:,J1), N, L, HWIDTH, KWIDTH)
+    CALL HARMONICCOEFFS(SAVEB, PATOMS, COEFFSB(:,:,:,J1), N, L, HWIDTH, KWIDTH)
+    CALL DOTHARMONICCOEFFS(COEFFSB(:,:,:,J1), COEFFSA(:,:,:,J1), N, L, PIMML)
+    DO J=0,L
+        DO M2=-J,J
+            DO M1=-J,J
+            IMML(M1,M2,J) = IMML(M1,M2,J) + PIMML(M1,M2,J)
+            ENDDO
+        ENDDO
+    ENDDO
+    NDUMMY=NDUMMY+NPERMSIZE(J1)
+ENDDO
+
+NROT = NROTATIONS
+CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTSAVE,DIST2SAVE,RMATSAVE,NROT,ANGLES)
+
+IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN 
+    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> inverting geometry for comparison with target'
+    ! Saving non inverted configuration
+    XBESTASAVE(1:3*NATOMS) = SAVEA(1:3*NATOMS)
+    KEEPPERM(1:NATOMS) = BESTPERM(1:NATOMS)
+    SAVEA = -COORDSA(1:3*NATOMS)
+    NROT = NROTATIONS
+
+    ! Recalculating Fourier Coefficients for inverted COORDSA
+    IMML = CMPLX(0.D0,0.D0,8)
+    NDUMMY=1
+    DO J1=1,NPERMGROUP
+        DO J=0,L
+            COEFFSA(:,:,J,J1) = COEFFSA(:,:,J,J1) * (-1)**(J)
+        ENDDO
+        CALL DOTHARMONICCOEFFS(COEFFSB(:,:,:,J1), COEFFSA(:,:,:,J1), N, L, PIMML)
+        DO J=0,L
+            DO M2=-J,J
+                DO M1=-J,J
+                IMML(M1,M2,J) = IMML(M1,M2,J) + PIMML(M1,M2,J)
+                ENDDO
+            ENDDO
+        ENDDO
+        NDUMMY=NDUMMY+NPERMSIZE(J1)
+    ENDDO
+    CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROT,ANGLES)
+    
+    IF (DISTANCE.LT.DISTSAVE) THEN
+        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
+    &   'fastoverlap> inversion found better alignment, distance=', distance
+        COORDSA(1:3*NATOMS) = SAVEA(1:3*NATOMS)
+        RMATBEST = RMATSAVE
+    ELSE
+        COORDSA(1:3*NATOMS) = XBESTASAVE(1:3*NATOMS)
+        DISTANCE = DISTSAVE
+        DIST2 = DIST2SAVE
+        RMATBEST = RMATSAVE
+    ENDIF
+ELSE
+    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> not inverting geometry for comparison with target'
+    COORDSA(1:3*NATOMS) = SAVEA(1:3*NATOMS)
+    DISTANCE = DISTSAVE
+    DIST2 = DIST2SAVE
+    RMATBEST = RMATSAVE
+ENDIF
+
+IF (DEBUG) THEN
+    WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> overall best distance=', distance
+    WRITE(MYUNIT,'(A)') 'fastoverlap> overall best rotation matrix:'
+    WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
+ENDIF
+
+PERMINVOPT = PERMINVOPTSAVE
+NOINVERSION = NOINVERSIONSAVE
+
+END SUBROUTINE ALIGNHARM
+
+SUBROUTINE ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROTATIONS,ANGLES)
+! Aligns two structures, specified by COORDSA and COORDSB, aligns COORDSA so it most
+! closely matches COORDSB. 
+! Assumes that COORDSA and COORDSB are both centered on their Centers of Mass
+! Uses precalculated Fourier Coefficients, IMML
+! Uses minpermdist to refine alignment
+
+! Low-level routine, better to use ALIGN or ALIGNHARM
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NATOMS, L
+INTEGER, INTENT(INOUT) :: NROTATIONS
+LOGICAL, INTENT(IN) :: DEBUG
+DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
+DOUBLE PRECISION, INTENT(OUT) :: ANGLES(NROTATIONS,3)
+DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2, RMATBEST(3,3)
+COMPLEX*16, INTENT(IN) :: IMML(-L:L,-L:L,0:L)
+
+COMPLEX*16 ILMM(0:L,0:2*L,0:2*L)
+DOUBLE PRECISION OVERLAP(2*L+2,2*L+2,2*L+2)
+DOUBLE PRECISION AMPLITUDES(NROTATIONS), BESTDIST, RMATSAVE(3,3), RMAT(3,3), WORSTRAD
+INTEGER J, J1
+
+
+CALL CALCOVERLAP(IMML, OVERLAP, L, ILMM)
+CALL FINDROTATIONS(OVERLAP, L, ANGLES, AMPLITUDES, NROTATIONS, DEBUG)
+IF (DEBUG) WRITE(MYUNIT,'(A,I3,A)') 'fastoverlap> found ', NROTATIONS, ' candidate rotations'
+
+
+BESTDIST = HUGE(BESTDIST)
+DUMMYB(:) = COORDSB(:3*NATOMS)
+
+DO J=1,NROTATIONS
+
+    CALL EULERM(ANGLES(J,1),ANGLES(J,2),ANGLES(J,3),RMATSAVE)
+    DO J1=1,NATOMS
+        DUMMYA(J1*3-2:J1*3) = MATMUL(RMATSAVE, COORDSA(J1*3-2:J1*3))
+    ENDDO
+
+    IF (DEBUG) THEN
+        WRITE(MYUNIT,'(A,I3,A)') 'fastoverlap> testing rotation', J, ' with Euler angles:'
+        WRITE(MYUNIT, '(3F20.10)') ANGLES(J,:)
+        WRITE(MYUNIT,'(A)') 'fastoverlap> testing rotation matrix:'
+        WRITE(MYUNIT, '(3F20.10)') RMATSAVE(1:3,1:3)
+    ENDIF
+
+    CALL MINPERMDIST(DUMMYB,DUMMYA,NATOMS,DEBUG,0.D0,0.D0,0.D0,.FALSE.,.FALSE.,DISTANCE,DIST2,.FALSE.,RMAT)
+    IF (DISTANCE.LT.BESTDIST) THEN
+        BESTDIST = DISTANCE
+        XBESTA(1:3*NATOMS) = DUMMYA(1:3*NATOMS)
+        RMATBEST = MATMUL(RMAT,RMATSAVE)
+
+        IF (DEBUG) THEN
+            WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> new best alignment distance=', BESTDIST
+            WRITE(MYUNIT,'(A)') 'fastoverlap> new best rotation matrix:'
+            WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
+        END IF
+
+    ELSE IF (DEBUG) THEN
+        WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> best aligment distance found=', BESTDIST
+        WRITE(MYUNIT,'(A)') 'fastoverlap> best rotation matrix found:'
+        WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
+    ENDIF
+ENDDO
+
+
+! Returning Best Coordinates
+COORDSA(1:3*NATOMS) = XBESTA(1:3*NATOMS)
+
+DISTANCE = BESTDIST
+DIST2 = BESTDIST**2
+
+END SUBROUTINE ALIGNCOEFFS
 
 SUBROUTINE HARMONIC0L(N, RJ, SIGMA, R0, RET)
 
@@ -375,6 +729,25 @@ ENDDO
 
 END SUBROUTINE HARMONICCOEFFSPERM
 
+SUBROUTINE HARMONICCOEFFSMULTI(COORDSLIST,NATOMS,NLIST,CNMLLIST,N,L,HWIDTH,KWIDTH,NPERMGROUP)
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NATOMS, NLIST, N, L, NPERMGROUP
+DOUBLE PRECISION, INTENT(IN) :: COORDSLIST(3*NATOMS, NLIST), HWIDTH, KWIDTH
+COMPLEX*16, INTENT(OUT) :: CNMLLIST(0:N,-L:L,0:L,1:NPERMGROUP, NLIST)
+
+INTEGER I
+
+!write(*,*) NATOMS, NLIST, N, L, NPERMGROUP
+!WRITE(*,*) SHAPE(CNMLLIST), SHAPE(COORDSLIST)
+
+DO I=1,NLIST
+    CALL HARMONICCOEFFSPERM(COORDSLIST(:,I),NATOMS,CNMLLIST(:,:,:,:,I),N,L,HWIDTH,KWIDTH,NPERMGROUP)
+ENDDO
+
+END SUBROUTINE HARMONICCOEFFSMULTI
+
 SUBROUTINE DOTHARMONICCOEFFS(C1NML, C2NML, N, L, IMML)
 
 IMPLICIT NONE
@@ -398,6 +771,110 @@ DO J=0,L
 ENDDO
 
 END SUBROUTINE DOTHARMONICCOEFFS
+
+SUBROUTINE DOTHARMONICCOEFFSPERM(C1NML, C2NML, N, L, IMML, NPERMGROUP)
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: N, L, NPERMGROUP
+COMPLEX*16, INTENT(IN) :: C1NML(0:N,-L:L,0:L,NPERMGROUP), C2NML(0:N,-L:L,0:L,NPERMGROUP)
+COMPLEX*16, INTENT(OUT) :: IMML(-L:L,-L:L,0:L)
+
+INTEGER I, J, M1, M2, K, INDM1, INDM2
+
+IMML = CMPLX(0.D0,0.D0,8)
+
+DO K=1,NPERMGROUP
+    DO J=0,L
+        DO M2=-J,J
+            DO M1=-J,J
+                DO I=0,N
+                    IMML(M1,M2,J) = IMML(M1,M2,J) + CONJG(C1NML(I,M1,J,K))*C2NML(I,M2,J,K)
+                ENDDO
+            ENDDO
+        ENDDO
+    ENDDO
+ENDDO
+
+END SUBROUTINE DOTHARMONICCOEFFSPERM
+
+SUBROUTINE CALCSIMILARITY(C1NML, C2NML, N, L, NPERMGROUP, NORM, MAXOVER)
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: N, L, NPERMGROUP
+COMPLEX*16, INTENT(IN) :: C1NML(0:N,-L:L,0:L,NPERMGROUP), C2NML(0:N,-L:L,0:L,NPERMGROUP)
+DOUBLE PRECISION, INTENT(OUT) :: NORM, MAXOVER
+
+COMPLEX*16 IMML(-L:L,-L:L,0:L), ILMM(0:L,0:2*L,0:2*L)
+DOUBLE PRECISION OVERLAP(2*L+2,2*L+2,2*L+2)
+
+INTEGER J,M1,M2
+
+CALL DOTHARMONICCOEFFSPERM(C1NML, C2NML, N, L, IMML, NPERMGROUP)
+
+! Calculated average overlap
+DO J=0,L
+    DO M2=-J,J
+        DO M1=-J,J
+            NORM = NORM + REAL(IMML(M1,M2,J),8)**2 + AIMAG(IMML(M1,M2,J))**2
+        ENDDO
+    ENDDO
+ENDDO
+
+! Calculate max overlap
+CALL CALCOVERLAP(IMML, OVERLAP, L, ILMM)
+MAXOVER = MAXVAL(OVERLAP)
+
+END SUBROUTINE CALCSIMILARITY
+
+SUBROUTINE CALCSIMILARITIES(C1NMLLIST,N1LIST,C2NMLLIST,N2LIST,N,L,NPERMGROUP,NORMS,MAXOVERS,SYM)
+
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: N1LIST, N2LIST, N, L, NPERMGROUP
+COMPLEX*16, INTENT(IN) :: C1NMLLIST(0:N,-L:L,0:L,NPERMGROUP,N1LIST), &
+    & C2NMLLIST(0:N,-L:L,0:L,NPERMGROUP,N2LIST)
+LOGICAL, INTENT(IN) :: SYM
+DOUBLE PRECISION, INTENT(OUT) :: NORMS(N1LIST,N2LIST), MAXOVERS(N1LIST,N2LIST)
+
+INTEGER I1, I2
+
+IF (SYM) THEN
+    ! if C1NMLLIST == C2NMLLIST then only need to calculate half the values
+    DO I1=1,N1LIST
+        DO I2=I1,N1LIST
+            CALL CALCSIMILARITY(C1NMLLIST(:,:,:,:,I1), C2NMLLIST(:,:,:,:,I2), N, L, NPERMGROUP, &
+                & NORMS(I1,I2), MAXOVERS(I1,I2))
+            NORMS(I2,I1) = NORMS(I1,I2)
+            MAXOVERS(I2,I1) = MAXOVERS(I1,I2)
+        ENDDO
+    ENDDO
+ELSE
+    ! Calculate all values
+    DO I1=1,N1LIST
+        DO I2=1,N1LIST
+            CALL CALCSIMILARITY(C1NMLLIST(:,:,:,:,I1), C2NMLLIST(:,:,:,:,I2), N, L, NPERMGROUP, &
+                & NORMS(I1,I2), MAXOVERS(I1,I2))
+        ENDDO
+    ENDDO
+ENDIF
+
+END SUBROUTINE CALCSIMILARITIES
+
+SUBROUTINE CALCOVERLAPMATRICES(COORDSLIST,NATOMS,NLIST,N,L,HWIDTH,KWIDTH,NORMS,MAXOVERS)
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NATOMS, NLIST, N, L
+DOUBLE PRECISION, INTENT(IN) :: COORDSLIST(3*NATOMS, NLIST), HWIDTH, KWIDTH
+DOUBLE PRECISION, INTENT(OUT) :: NORMS(NLIST,NLIST), MAXOVERS(NLIST,NLIST)
+
+COMPLEX*16 CNMLLIST(0:N,-L:L,0:L,1:NPERMGROUP, NLIST)
+
+CALL HARMONICCOEFFSMULTI(COORDSLIST,NATOMS,NLIST,CNMLLIST,N,L,HWIDTH,KWIDTH,NPERMGROUP)
+CALL CALCSIMILARITIES(CNMLLIST,NLIST,CNMLLIST,NLIST,N,L,NPERMGROUP,NORMS,MAXOVERS,.TRUE.)
+
+END SUBROUTINE CALCOVERLAPMATRICES
 
 SUBROUTINE FOURIERCOEFFS(COORDSB, COORDSA, NATOMS, L, KWIDTH, IMML, YMLB, YMLA)
 !
@@ -673,359 +1150,6 @@ IF(MKTRAPT) THEN
 ENDIF
 
 END SUBROUTINE CHECKKEYWORDS
-
-SUBROUTINE ALIGNHARM(COORDSB, COORDSA, NATOMS, DEBUG, N, L, HWIDTH, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
-!  COORDSA becomes the optimal alignment of the optimal permutation(-inversion)
-!  isomer. DISTANCE is the residual square distance for the best alignment with 
-!  respect to permutation(-inversion)s as well as orientation and centre of mass.
-!  COORDSA and COORDSB are both centred on the ORIGIN
-
-!  RMATBEST gives the optimal rotation matrix
-
-!  KWIDTH is the width of the Gaussian kernels that are centered on each of the
-!  atomic coordinates, whose overlap integral is maximised to find the optimal
-!  rotations
-!  L is the maximum angular momentum degree up to which the SO(3) coefficients 
-!  are calculated number of coefficients that will be calculated = 1/3 (L+1)(2L+1)(2L+3)
-
-!  HWIDTH is the lengthscale of the Quantum Harmonic Oscillator Basis
-!  N is the maximum order of the Quantum Harmonic Oscillator basis
-
-!  Number of Calculations for SO(3) calculations ~ O(1/3 (L+1)(2L+1)(2L+3) * NATOMS**2)
-
-USE COMMONS, ONLY: BESTPERM, PERMOPT, PERMINVOPT, NOINVERSION, CHRMMT, AMBERT, AMBER12T
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: NATOMS, N, L
-INTEGER, INTENT(IN) :: NROTATIONS
-LOGICAL, INTENT(IN) :: DEBUG
-DOUBLE PRECISION, INTENT(IN) :: HWIDTH, KWIDTH
-DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
-DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2, RMATBEST(3,3)
-
-COMPLEX*16 PIMML(-L:L,-L:L,0:L)
-COMPLEX*16 IMML(-L:L,-L:L,0:L), YMLA(-L:L,0:L,NATOMS), YMLB(-L:L,0:L,NATOMS)
-COMPLEX*16 COEFFSA(0:N,-L:L,0:L,NPERMGROUP), COEFFSB(0:N,-L:L,0:L,NPERMGROUP)
-
-DOUBLE PRECISION SAVEA(3*NATOMS),SAVEB(3*NATOMS)
-DOUBLE PRECISION ANGLES(NROTATIONS,3), DISTSAVE, RMATSAVE(3,3), WORSTRAD, DIST2SAVE
-INTEGER J,J1,J2,M1,M2,IND2,NROT,NDUMMY,INVERT,PATOMS
-INTEGER SAVEPERM(NATOMS), KEEPPERM(NATOMS)
-
-
-! Checking keywords are set properly
-CALL CHECKKEYWORDS()
-
-! Setting keywords for fastoverlap use of minpermdist, will be reset when exiting program
-PERMINVOPTSAVE = PERMINVOPT
-NOINVERSIONSAVE = NOINVERSION
-PERMINVOPT = .FALSE.
-NOINVERSION = .TRUE.
-
-! Calculating overlap integral separately for each permutation group
-IMML = CMPLX(0.D0,0.D0,8)
-NDUMMY=1
-DO J1=1,NPERMGROUP
-    PATOMS=INT(NPERMSIZE(J1),4)
-    DO J2=1,PATOMS
-        IND2 = PERMGROUP(NDUMMY+J2-1)
-        SAVEA(3*J2-2:3*J2)=COORDSA(3*IND2-2:3*IND2)
-        SAVEB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
-    ENDDO
-    CALL HARMONICCOEFFS(SAVEA, PATOMS, COEFFSA(:,:,:,J1), N, L, HWIDTH, KWIDTH)
-    CALL HARMONICCOEFFS(SAVEB, PATOMS, COEFFSB(:,:,:,J1), N, L, HWIDTH, KWIDTH)
-    CALL DOTHARMONICCOEFFS(COEFFSB(:,:,:,J1), COEFFSA(:,:,:,J1), N, L, PIMML)
-    DO J=0,L
-        DO M2=-J,J
-            DO M1=-J,J
-            IMML(M1,M2,J) = IMML(M1,M2,J) + PIMML(M1,M2,J)
-            ENDDO
-        ENDDO
-    ENDDO
-    NDUMMY=NDUMMY+NPERMSIZE(J1)
-ENDDO
-
-NROT = NROTATIONS
-CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTSAVE,DIST2SAVE,RMATSAVE,NROT,ANGLES)
-
-IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN 
-    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> inverting geometry for comparison with target'
-    ! Saving non inverted configuration
-    XBESTASAVE(1:3*NATOMS) = SAVEA(1:3*NATOMS)
-    KEEPPERM(1:NATOMS) = BESTPERM(1:NATOMS)
-    SAVEA = -COORDSA(1:3*NATOMS)
-    NROT = NROTATIONS
-
-    ! Recalculating Fourier Coefficients for inverted COORDSA
-    IMML = CMPLX(0.D0,0.D0,8)
-    NDUMMY=1
-    DO J1=1,NPERMGROUP
-        DO J=0,L
-            COEFFSA(:,:,J,J1) = COEFFSA(:,:,J,J1) * (-1)**(J)
-        ENDDO
-        CALL DOTHARMONICCOEFFS(COEFFSB(:,:,:,J1), COEFFSA(:,:,:,J1), N, L, PIMML)
-        DO J=0,L
-            DO M2=-J,J
-                DO M1=-J,J
-                IMML(M1,M2,J) = IMML(M1,M2,J) + PIMML(M1,M2,J)
-                ENDDO
-            ENDDO
-        ENDDO
-        NDUMMY=NDUMMY+NPERMSIZE(J1)
-    ENDDO
-    CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROT,ANGLES)
-    
-    IF (DISTANCE.LT.DISTSAVE) THEN
-        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
-    &   'fastoverlap> inversion found better alignment, distance=', distance
-        COORDSA(1:3*NATOMS) = SAVEA(1:3*NATOMS)
-        RMATBEST = RMATSAVE
-    ELSE
-        COORDSA(1:3*NATOMS) = XBESTASAVE(1:3*NATOMS)
-        DISTANCE = DISTSAVE
-        DIST2 = DIST2SAVE
-        RMATBEST = RMATSAVE
-    ENDIF
-ELSE
-    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> not inverting geometry for comparison with target'
-    COORDSA(1:3*NATOMS) = SAVEA(1:3*NATOMS)
-    DISTANCE = DISTSAVE
-    DIST2 = DIST2SAVE
-    RMATBEST = RMATSAVE
-ENDIF
-
-IF (DEBUG) THEN
-    WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> overall best distance=', distance
-    WRITE(MYUNIT,'(A)') 'fastoverlap> overall best rotation matrix:'
-    WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
-ENDIF
-
-PERMINVOPT = PERMINVOPTSAVE
-NOINVERSION = NOINVERSIONSAVE
-
-END SUBROUTINE ALIGNHARM
-
-SUBROUTINE ALIGN(COORDSB, COORDSA, NATOMS, DEBUG, L, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
-
-!  COORDSA becomes the optimal alignment of the optimal permutation(-inversion)
-!  isomer. DISTANCE is the residual square distance for the best alignment with 
-!  respect to permutation(-inversion)s as well as orientation and centre of mass.
-!  COORDSA and COORDSB are both centred on the ORIGIN
-
-!  KWIDTH is the width of the Gaussian kernels that are centered on each of the
-!  atomic coordinates, whose overlap integral is maximised to find the optimal
-!  rotations
-
-!  RMATBEST gives the optimal rotation matrix
-
-!  L is the maximum angular momentum degree up to which the SO(3) coefficients 
-!  are calculated number of coefficients that will be calculated = 1/3 (L+1)(2L+1)(2L+3)
-
-!  Number of Calculations for SO(3) calculations ~ O(1/3 (L+1)(2L+1)(2L+3) * NATOMS**2)
-
-USE COMMONS, ONLY: BESTPERM, PERMOPT, PERMINVOPT, NOINVERSION, CHRMMT, AMBERT, AMBER12T
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: NATOMS, L
-INTEGER, INTENT(IN) :: NROTATIONS
-LOGICAL, INTENT(IN) :: DEBUG
-DOUBLE PRECISION, INTENT(IN) :: KWIDTH ! Gaussian Kernel width
-DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
-DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2, RMATBEST(3,3)
-
-COMPLEX*16 PIMML(-L:L,-L:L,0:L)
-COMPLEX*16 IMML(-L:L,-L:L,0:L), YMLA(-L:L,0:L,NATOMS), YMLB(-L:L,0:L,NATOMS)
-
-DOUBLE PRECISION SAVEA(3*NATOMS),SAVEB(3*NATOMS),COMA(3),COMB(3)
-DOUBLE PRECISION ANGLES(NROTATIONS,3), DISTSAVE, RMATSAVE(3,3), WORSTRAD, DIST2SAVE
-INTEGER J,J1,J2,M1,M2,IND2,NROT,NDUMMY,INVERT,PATOMS
-INTEGER SAVEPERM(NATOMS), KEEPPERM(NATOMS)
-
-! Checking keywords are set properly
-CALL CHECKKEYWORDS()
-
-! Setting keywords for fastoverlap use of minpermdist, will be reset when exiting program
-PERMINVOPTSAVE = PERMINVOPT
-NOINVERSIONSAVE = NOINVERSION
-PERMINVOPT = .FALSE.
-NOINVERSION = .TRUE.
-
-! Centering COORDSA and COORDSB on the origin
-COMA = 0.D0
-COMB = 0.D0
-DO J=1,NATOMS
-    COMA = COMA + COORDSA(3*J-2:3*J)
-    COMB = COMB + COORDSB(3*J-2:3*J)
-ENDDO
-COMA = COMA/NATOMS
-COMB = COMB/NATOMS
-DO J=1,NATOMS
-    COORDSA(3*J-2:3*J) = COORDSA(3*J-2:3*J) - COMA
-    COORDSB(3*J-2:3*J) = COORDSB(3*J-2:3*J) - COMB
-ENDDO
-
-
-! Calculating overlap integral separately for each permutation group
-IMML = CMPLX(0.D0,0.D0,8)
-NDUMMY=1
-DO J1=1,NPERMGROUP
-    PATOMS=INT(NPERMSIZE(J1),4)
-    DO J2=1,PATOMS
-        IND2 = PERMGROUP(NDUMMY+J2-1)
-        SAVEA(3*J2-2:3*J2)=COORDSA(3*IND2-2:3*IND2)
-        SAVEB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
-    ENDDO
-    CALL FOURIERCOEFFS(SAVEB,SAVEA,PATOMS,L,KWIDTH,PIMML,YMLB,YMLA)
-    DO J=0,L
-        DO M2=-J,J
-            DO M1=-J,J
-            IMML(M1,M2,J) = IMML(M1,M2,J) + PIMML(M1,M2,J)
-            ENDDO
-        ENDDO
-    ENDDO
-    NDUMMY=NDUMMY+NPERMSIZE(J1)
-ENDDO
-
-SAVEA(1:3*NATOMS) = COORDSA(1:3*NATOMS)
-SAVEB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
-
-NROT = NROTATIONS
-CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTSAVE,DIST2SAVE,RMATSAVE,NROT,ANGLES)
-
-IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN 
-    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> inverting geometry for comparison with target'
-    ! Saving non inverted configuration
-    XBESTASAVE(1:3*NATOMS) = SAVEA(1:3*NATOMS)
-
-    ! Calculating overlap integral for inverted configuration
-    NDUMMY=1
-    DO J1=1,NPERMGROUP
-        PATOMS=INT(NPERMSIZE(J1),4)
-        DO J2=1,PATOMS
-            IND2 = PERMGROUP(NDUMMY+J2-1)
-            SAVEA(3*J2-2:3*J2)=-COORDSA(3*IND2-2:3*IND2)
-            SAVEB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
-        ENDDO
-        CALL FOURIERCOEFFS(SAVEB,SAVEA,PATOMS,L,KWIDTH,PIMML,YMLB,YMLA)
-        DO J=0,L
-            DO M2=-J,J
-                DO M1=-J,J
-                    IMML(M1,M2,J) = IMML(M1,M2,J) + PIMML(M1,M2,J)
-                ENDDO
-            ENDDO
-        ENDDO
-        NDUMMY=NDUMMY+NPERMSIZE(J1)
-    ENDDO
-    SAVEA(1:3*NATOMS) = -COORDSA(1:3*NATOMS)
-    SAVEB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
-
-    NROT = NROTATIONS
-    CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROT,ANGLES)
-    IF (DISTANCE.LT.DISTSAVE) THEN
-        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
-    &   'fastoverlap> inversion found better alignment, distance=', distance
-        COORDSA(1:3*NATOMS) = SAVEA(1:3*NATOMS)
-    ELSE
-        COORDSA(1:3*NATOMS) = XBESTASAVE(1:3*NATOMS)
-        DISTANCE = DISTSAVE
-        DIST2 = DIST2SAVE
-        RMATBEST = RMATSAVE
-        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
-    &   'fastoverlap> better alignment with no-inversion, distance=', distance
-    ENDIF
-ELSE
-    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> not inverting geometry for comparison with target'
-    COORDSA(1:3*NATOMS) = SAVEA(1:3*NATOMS)
-    DISTANCE = DISTSAVE
-    DIST2 = DIST2SAVE
-    RMATBEST = RMATSAVE
-ENDIF
-
-IF (DEBUG) THEN
-    WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> overall best distance=', distance
-    WRITE(MYUNIT,'(A)') 'fastoverlap> overall best rotation matrix:'
-    WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
-ENDIF
-
-PERMINVOPT = PERMINVOPTSAVE
-NOINVERSION = NOINVERSIONSAVE
-
-END SUBROUTINE ALIGN
-
-SUBROUTINE ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROTATIONS,ANGLES)
-! Aligns two structures, specified by COORDSA and COORDSB, aligns COORDSA so it most
-! closely matches COORDSB. 
-! Assumes that COORDSA and COORDSB are both centered on their Centers of Mass
-! Uses precalculated Fourier Coefficients, IMML
-! Uses minpermdist to refine alignment
-
-! Low-level routine, better to use ALIGN or ALIGNHARM
-
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: NATOMS, L
-INTEGER, INTENT(INOUT) :: NROTATIONS
-LOGICAL, INTENT(IN) :: DEBUG
-DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
-DOUBLE PRECISION, INTENT(OUT) :: ANGLES(NROTATIONS,3)
-DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2, RMATBEST(3,3)
-COMPLEX*16, INTENT(IN) :: IMML(-L:L,-L:L,0:L)
-
-COMPLEX*16 ILMM(0:L,0:2*L,0:2*L)
-DOUBLE PRECISION OVERLAP(2*L+2,2*L+2,2*L+2)
-DOUBLE PRECISION AMPLITUDES(NROTATIONS), BESTDIST, RMATSAVE(3,3), RMAT(3,3), WORSTRAD
-INTEGER J, J1
-
-
-CALL CALCOVERLAP(IMML, OVERLAP, L, ILMM)
-CALL FINDROTATIONS(OVERLAP, L, ANGLES, AMPLITUDES, NROTATIONS, DEBUG)
-IF (DEBUG) WRITE(MYUNIT,'(A,I3,A)') 'fastoverlap> found ', NROTATIONS, ' candidate rotations'
-
-
-BESTDIST = HUGE(BESTDIST)
-DUMMYB(:) = COORDSB(:3*NATOMS)
-
-DO J=1,NROTATIONS
-
-    CALL EULERM(ANGLES(J,1),ANGLES(J,2),ANGLES(J,3),RMATSAVE)
-    DO J1=1,NATOMS
-        DUMMYA(J1*3-2:J1*3) = MATMUL(RMATSAVE, COORDSA(J1*3-2:J1*3))
-    ENDDO
-
-    IF (DEBUG) THEN
-        WRITE(MYUNIT,'(A,I3,A)') 'fastoverlap> testing rotation', J, ' with Euler angles:'
-        WRITE(MYUNIT, '(3F20.10)') ANGLES(J,:)
-        WRITE(MYUNIT,'(A)') 'fastoverlap> testing rotation matrix:'
-        WRITE(MYUNIT, '(3F20.10)') RMATSAVE(1:3,1:3)
-    ENDIF
-
-    CALL MINPERMDIST(DUMMYB,DUMMYA,NATOMS,DEBUG,0.D0,0.D0,0.D0,.FALSE.,.FALSE.,DISTANCE,DIST2,.FALSE.,RMAT)
-    IF (DISTANCE.LT.BESTDIST) THEN
-        BESTDIST = DISTANCE
-        XBESTA(1:3*NATOMS) = DUMMYA(1:3*NATOMS)
-        RMATBEST = MATMUL(RMAT,RMATSAVE)
-
-        IF (DEBUG) THEN
-            WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> new best alignment distance=', BESTDIST
-            WRITE(MYUNIT,'(A)') 'fastoverlap> new best rotation matrix:'
-            WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
-        END IF
-
-    ELSE IF (DEBUG) THEN
-        WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> best aligment distance found=', BESTDIST
-        WRITE(MYUNIT,'(A)') 'fastoverlap> best rotation matrix found:'
-        WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
-    ENDIF
-ENDDO
-
-
-! Returning Best Coordinates
-COORDSA(1:3*NATOMS) = XBESTA(1:3*NATOMS)
-
-DISTANCE = BESTDIST
-DIST2 = BESTDIST**2
-
-END SUBROUTINE ALIGNCOEFFS
 
 END MODULE CLUSTERFASTOVERLAP
 

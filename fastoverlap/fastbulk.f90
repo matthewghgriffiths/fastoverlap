@@ -20,6 +20,22 @@
 !***********************************************************************
 
 ! Subroutines:
+
+!    ALIGN(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KERNELWIDTH,NDISPLACEMENTS,DISTANCE,DIST2)
+!        MAIN ALIGNMENT ALGORITHM ROUTINE
+!        if KERNELWIDTH=0 then algorithm automatically determines a suitable KWIDTH
+!        If want to test Octahedral symmetry, OHCELLT in COMMONS needs to be set to be .TRUE.
+!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
+
+!    ALIGN1(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPLACEMENTS,NWAVE,NFSPACE)
+!        Called by ALIGN, use if want to set KWIDTH, NWAVE and NFSPACE
+!        If want to test Octahedral symmetry, OHCELLT in COMMONS needs to be set to be .TRUE.
+!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
+
+!    ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,DEBUG,FCOEFFS,NFSPACE,BOXLX,BOXLY,BOXLZ,DISTANCE,DIST2,NDISPS)
+!        Primary alignment routine, called by ALIGN1, be careful about using this function
+!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
+
 !    SETWAVEK(NWAVE,WAVEK,BOXLX,BOXLY,BOXLZ)
 
 !    PERIODICFOURIER(NATOMS, NWAVE, NCOEFF, COORDS, WAVEK, FCOEFF)
@@ -40,21 +56,6 @@
 
 !    CHECKKEYWORDS()
 !        Sanity checks for the keywords
-
-!    ALIGN(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KERNELWIDTH,NDISPLACEMENTS,DISTANCE,DIST2)
-!        MAIN ALIGNMENT ALGORITHM ROUTINE
-!        if KERNELWIDTH=0 then algorithm automatically determines a suitable KWIDTH
-!        If want to test Octahedral symmetry, OHCELLT in COMMONS needs to be set to be .TRUE.
-!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
-
-!    ALIGN1(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPLACEMENTS,NWAVE,NFSPACE)
-!        Called by ALIGN, use if want to set KWIDTH, NWAVE and NFSPACE
-!        If want to test Octahedral symmetry, OHCELLT in COMMONS needs to be set to be .TRUE.
-!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
-
-!    ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,DEBUG,FCOEFFS,NFSPACE,BOXLX,BOXLY,BOXLZ,DISTANCE,DIST2,NDISPS)
-!        Primary alignment routine, called by ALIGN1, be careful about using this function
-!        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
 
 !    ALIGN2(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,TWOD,DISTANCE,DIST2,RIGID,DISPBEST,NDISPS,BESTPERM,DISP)
 !        Uses MEDIANMINPERMDIST to perform alignment
@@ -253,6 +254,321 @@ DATA OHOPSMAT / &
 
 CONTAINS
 
+SUBROUTINE CALCDEFAULTS(NATOMS,BOXLX,BOXLY,BOXLZ,KERNELWIDTH,NWAVE,NFSPACE)
+
+USE FASTOVERLAPUTILS, ONLY: FASTLEN
+
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: NATOMS
+DOUBLE PRECISION, INTENT(IN) :: BOXLX,BOXLY,BOXLZ
+DOUBLE PRECISION, INTENT(OUT) :: KERNELWIDTH
+INTEGER, INTENT(OUT) :: NWAVE,NFSPACE
+
+DOUBLE PRECISION MAXWAVEK
+
+KERNELWIDTH = (BOXLX*BOXLY*BOXLZ/NATOMS)**(1.D0/3.D0) / 3.D0
+MAXWAVEK = 1.5 / KERNELWIDTH
+NWAVE = CEILING(2*3.14159265359/MIN(BOXLX,BOXLY,BOXLZ)*MAXWAVEK, 4)
+
+
+IF((2*NWAVE+1).LE.200) THEN
+    NFSPACE = FASTLEN(4*NWAVE+3)
+ELSE
+    ! PROBABLY NOT THE BEST WAY TO CALCULATE THIS!
+    NFSPACE = 2**CEILING(LOG(4.D0*NWAVE+3.D0)/LOG(2.D0),4)
+ENDIF
+
+END SUBROUTINE CALCDEFAULTS
+
+SUBROUTINE ALIGN(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KERNELWIDTH,NDISPLACEMENTS,DISTANCE,DIST2)
+! COORDSA becomes the optimal alignment of the optimal permutation of COORDSB
+
+USE FASTOVERLAPUTILS, ONLY: FASTLEN
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NATOMS, NDISPLACEMENTS
+LOGICAL, INTENT(IN) :: DEBUG
+DOUBLE PRECISION, INTENT(IN) :: BOXLX, BOXLY, BOXLZ, KERNELWIDTH
+DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
+DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2
+
+
+DOUBLE PRECISION KWIDTH, MAXWAVEK
+INTEGER NWAVE, NFSPACE, NDISPS
+
+! Set KWIDTH to be 1/3 of the average interatomic separation
+IF (KERNELWIDTH.LE.0.D0) THEN
+    KWIDTH = (BOXLX*BOXLY*BOXLZ/NATOMS)**(1.D0/3.D0) / 3.D0
+    IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> kernel distance automatically set to ', KWIDTH
+ELSE
+    KWIDTH = KERNELWIDTH
+    IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> kernel distance set to ', KWIDTH
+ENDIF
+
+! Calculate number of wavevectors that we need to preserve reasonable level of accuracy
+MAXWAVEK = 1.5 / KWIDTH
+NWAVE = CEILING(2*3.14159265359/MIN(BOXLX,BOXLY,BOXLZ)*MAXWAVEK, 4)
+IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> max wavevector magnitude set to ', MAXWAVEK
+
+! Setting size of Fourier Transform array to be fast
+! This also increases the resolution of the method
+IF((2*NWAVE+1).LE.200) THEN
+    NFSPACE = FASTLEN(4*NWAVE+3)
+ELSE
+    ! PROBABLY NOT THE BEST WAY TO CALCULATE THIS!
+    NFSPACE = 2**CEILING(LOG(4.D0*NWAVE+3.D0)/LOG(2.D0),4)
+ENDIF
+IF (DEBUG) WRITE(MYUNIT,'(A,I4)') 'fastoverlap> overlap array resolution set to ', NFSPACE
+
+
+IF(NDISPLACEMENTS.EQ.0) THEN
+    NDISPS = 10
+ELSE
+    NDISPS = NDISPLACEMENTS
+END IF
+IF (DEBUG) WRITE(MYUNIT,'(A,I3)') 'fastoverlap> number of displacements to be tested = ', NDISPS
+
+!WRITE(*,*) "DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPLACEMENTS,NWAVE,NFSPACE"
+!WRITE(*,*) DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPS,NWAVE,NFSPACE
+CALL ALIGN1(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPS,NWAVE,NFSPACE)
+
+END SUBROUTINE ALIGN
+
+SUBROUTINE ALIGNGROUP(COORDS1LIST,N1LIST,COORDS2LIST,N2LIST,NATOMS,DEBUG, &
+    & BOXLX,BOXLY,BOXLZ,KWIDTH,NDISPLACEMENTS,NWAVE,NFSPACE,DISTMAT,ALIGNEDCOORDS2,SYM)
+
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: N1LIST, N2LIST, NATOMS, NDISPLACEMENTS, NFSPACE, NWAVE
+LOGICAL, INTENT(IN) :: DEBUG,SYM
+DOUBLE PRECISION, INTENT(IN) :: BOXLX, BOXLY, BOXLZ, KWIDTH
+DOUBLE PRECISION, INTENT(INOUT) :: COORDS1LIST(3*NATOMS,N1LIST), COORDS2LIST(3*NATOMS,N2LIST)
+DOUBLE PRECISION, INTENT(OUT) :: DISTMAT(N1LIST,N2LIST), ALIGNEDCOORDS2(3*NATOMS,N1LIST,N2LIST)
+
+COMPLEX*16 FCOEFF1(NFSPACE,NFSPACE,NFSPACE,NPERMGROUP,N1LIST), &
+    & FCOEFF2(NFSPACE,NFSPACE,NFSPACE,NPERMGROUP,N2LIST), FCOEFFS(NFSPACE,NFSPACE,NFSPACE)
+DOUBLE PRECISION WAVEK(3, 2*NWAVE+1,2*NWAVE+1,2*NWAVE+1), K2(2*NWAVE+1,2*NWAVE+1,2*NWAVE+1), DIST2
+INTEGER I,J,K,JX,JY,JZ,NDISPS
+
+IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> starting group alignment'
+IF (DEBUG) WRITE(MYUNIT,'(A,I5,A,I5)') 'fastoverlap> aligning ', N1LIST, ' structures with ', N2LIST
+
+CALL SETWAVEK(NWAVE,WAVEK,BOXLX,BOXLY,BOXLZ)
+DO JZ=1,2*NWAVE+1
+    DO JY=1,2*NWAVE+1
+        DO JX=1,2*NWAVE+1
+            K2(JX,JY,JZ) = EXP(-0.5D0 * (WAVEK(1,JX,JY,JZ)**2 + WAVEK(2,JX,JY,JZ)**2 + WAVEK(3,JX,JY,JZ)**2)*KWIDTH**2)
+        ENDDO
+    ENDDO
+ENDDO
+
+DO J=1,N1LIST
+    CALL PERIODICFOURIERPERM(COORDS1LIST(:,J),NATOMS,NWAVE,NFSPACE,WAVEK,FCOEFF1(:,:,:,:,J),NPERMGROUP)
+    DO I=1,NPERMGROUP
+        FCOEFF1(:,:,:,I,J) = FCOEFF1(:,:,:,I,J)*K2(:,:,:)
+    ENDDO
+ENDDO
+
+IF(.NOT.SYM) THEN
+    DO J=1,N2LIST
+        CALL PERIODICFOURIERPERM(COORDS2LIST(:,J),NATOMS,NWAVE,NFSPACE,WAVEK,FCOEFF2(:,:,:,:,J),NPERMGROUP)
+        DO I=1,NPERMGROUP
+            FCOEFF2(:,:,:,I,J) = CONJG(FCOEFF2(:,:,:,I,J))*K2(:,:,:)
+        ENDDO
+    ENDDO
+ELSE
+    FCOEFF2 = CONJG(FCOEFF1)
+ENDIF
+
+IF (SYM) THEN
+    DO J=1,N2LIST
+        IF (DEBUG) WRITE(MYUNIT,'(A,I3)') 'fastoverlap> aligning structure', J
+        DO I=J,N1LIST
+            IF (DEBUG) WRITE(MYUNIT,'(A,I3)') 'fastoverlap> with structure', I
+            CALL DOTFOURIERCOEFFS(FCOEFF1(:,:,:,:,I),FCOEFF2(:,:,:,:,J),NWAVE,NFSPACE,FCOEFFS,NPERMGROUP)
+            ALIGNEDCOORDS2(:,I,J) = COORDS2LIST(:,J)
+            NDISPS = NDISPLACEMENTS
+            CALL ALIGNCOEFFS(COORDS1LIST(:,I),ALIGNEDCOORDS2(:,I,J),NATOMS,DEBUG,FCOEFFS,NFSPACE, &
+                & BOXLX,BOXLY,BOXLZ,DISTMAT(I,J),DIST2,NDISPS)
+        ENDDO
+    ENDDO
+ELSE
+    DO J=1,N2LIST
+        IF (DEBUG) WRITE(MYUNIT,'(A,I3)') 'fastoverlap> aligning structure', J
+        DO I=1,N1LIST
+            IF (DEBUG) WRITE(MYUNIT,'(A,I3)') 'fastoverlap> with structure', I
+            CALL DOTFOURIERCOEFFS(FCOEFF1(:,:,:,:,I),FCOEFF2(:,:,:,:,J),NWAVE,NFSPACE,FCOEFFS,NPERMGROUP)
+            ALIGNEDCOORDS2(:,I,J) = COORDS2LIST(:,J)
+            NDISPS = NDISPLACEMENTS
+            CALL ALIGNCOEFFS(COORDS1LIST(:,I),ALIGNEDCOORDS2(:,I,J),NATOMS,DEBUG,FCOEFFS,NFSPACE, &
+                & BOXLX,BOXLY,BOXLZ,DISTMAT(I,J),DIST2,NDISPS)
+        ENDDO
+    ENDDO
+ENDIF
+
+END SUBROUTINE ALIGNGROUP
+
+SUBROUTINE ALIGN1(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPLACEMENTS,NWAVE,NFSPACE)
+
+USE COMMONS, ONLY: OHCELLT
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NATOMS, NDISPLACEMENTS, NFSPACE, NWAVE
+LOGICAL, INTENT(IN) :: DEBUG
+DOUBLE PRECISION, INTENT(IN) :: BOXLX, BOXLY, BOXLZ, KWIDTH
+DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
+DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2
+
+DOUBLE PRECISION WAVEK(3, 2*NWAVE+1,2*NWAVE+1,2*NWAVE+1), K2, DISTSAVE
+DOUBLE PRECISION SAVEA(3*NATOMS), SAVEB(3*NATOMS)
+COMPLEX*16 FCOEFFS(NFSPACE,NFSPACE,NFSPACE), FCOEFFA(NFSPACE,NFSPACE,NFSPACE,NPERMGROUP), &
+ & FCOEFFB(NFSPACE,NFSPACE,NFSPACE,NPERMGROUP), FCOEFFDUMMYA(NFSPACE,NFSPACE,NFSPACE,NPERMGROUP)
+INTEGER J, JX, JY, JZ, OPNUM, NDISPS, JXL, JYL, JZL, JXH, JYH, JZH, JXI, JYI, JZI
+
+CALL CHECKKEYWORDS()
+OHCELLTSAVE = OHCELLT
+OHCELLT = .FALSE.
+
+! Calculating Fourier Coefficients of COORDSA and COORDSB
+CALL SETWAVEK(NWAVE,WAVEK,BOXLX,BOXLY,BOXLZ)
+CALL PERIODICFOURIERPERM(COORDSA,NATOMS,NWAVE,NFSPACE,WAVEK,FCOEFFA,NPERMGROUP)
+CALL PERIODICFOURIERPERM(COORDSB,NATOMS,NWAVE,NFSPACE,WAVEK,FCOEFFB,NPERMGROUP)
+
+FCOEFFS = DCMPLX(0.D0, 0.D0)
+FCOEFFB = CONJG(FCOEFFB)
+
+! Calculating Fourier Coefficients of overlap integral
+DO JZ=1,2*NWAVE+1
+    DO JY=1,2*NWAVE+1
+        DO JX=1,2*NWAVE+1
+            K2 = EXP(-0.5D0 * (WAVEK(1,JX,JY,JZ)**2 + WAVEK(2,JX,JY,JZ)**2 + WAVEK(3,JX,JY,JZ)**2)*KWIDTH**2)
+            FCOEFFA(JX,JY,JZ,:) = FCOEFFA(JX,JY,JZ,:) * K2
+            FCOEFFB(JX,JY,JZ,:) = FCOEFFB(JX,JY,JZ,:) * K2
+            FCOEFFS(JX,JY,JZ) = SUM(FCOEFFA(JX,JY,JZ,:)*FCOEFFB(JX,JY,JZ,:))
+        ENDDO
+    ENDDO
+ENDDO
+
+!Set average overlap to 0
+FCOEFFS(NWAVE+1,NWAVE+1,NWAVE+1)=(0.D0,0.D0)
+
+SAVEB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
+
+IF (OHCELLTSAVE) THEN
+    DISTSAVE = HUGE(DISTSAVE)
+    DO OPNUM=1,48
+        IF (DEBUG) WRITE(MYUNIT,'(A,I2)') 'fastoverlap> Trying Oh symmetry operation number ',OPNUM
+        CALL OHOPS(COORDSA,SAVEA,OPNUM,NATOMS)
+        ! Applying octahedral symmetry operation to FCOEFFA
+        CALL OHTRANSFORMCOEFFS(FCOEFFA, FCOEFFDUMMYA, NWAVE, NFSPACE-NWAVE-1, NPERMGROUP, OPNUM)
+        
+        ! Recalculating Fourier Coefficients
+        FCOEFFS = DCMPLX(0.D0, 0.D0)
+        DO J=1,NPERMGROUP
+            DO JZ=1,2*NWAVE+1
+                DO JY=1,2*NWAVE+1
+                    DO JX=1,2*NWAVE+1
+                        FCOEFFS(JX,JY,JZ) = FCOEFFS(JX,JY,JZ) + &
+                        & FCOEFFDUMMYA(JX,JY,JZ,J)*FCOEFFB(JX,JY,JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+        FCOEFFS(NWAVE+1,NWAVE+1,NWAVE+1)=(0.D0,0.D0)
+
+        NDISPS = NDISPLACEMENTS
+        CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,DEBUG,FCOEFFS,NFSPACE,BOXLX,BOXLY,BOXLZ,DISTANCE,DIST2,NDISPS)
+
+        IF (DISTANCE.LT.DISTSAVE) THEN
+            IF (DEBUG) WRITE(MYUNIT,'(A,I2,A,G20.10)') &
+ & 'fastoverlap> Oh symmetry operation ', OPNUM, ' found better alignment, distance=', distance
+            XBESTASAVE(1:3*NATOMS) = SAVEA(1:3*NATOMS)
+            DISTSAVE = DISTANCE
+        ELSE
+            IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
+ & 'fastoverlap> overall best alignment distance=', distsave
+        ENDIF
+
+    ENDDO
+ELSE
+    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> not testing Oh symmetry'
+
+    XBESTASAVE(1:3*NATOMS) = COORDSA(1:3*NATOMS)
+    NDISPS = NDISPLACEMENTS
+    CALL ALIGNCOEFFS(SAVEB,XBESTASAVE,NATOMS,DEBUG,FCOEFFS,NFSPACE,BOXLX,BOXLY,BOXLZ,DISTSAVE,DIST2,NDISPS)
+    
+    IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
+ & 'fastoverlap> overall best alignment distance=', distsave
+ENDIF
+
+
+DISTANCE = DISTSAVE
+DIST2 = DISTANCE**2
+COORDSA(1:3*NATOMS) = XBESTASAVE(1:3*NATOMS)
+
+OHCELLT = OHCELLTSAVE
+
+END SUBROUTINE ALIGN1
+
+SUBROUTINE ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,DEBUG,FCOEFFS,NFSPACE,BOXLX,BOXLY,BOXLZ,DISTANCE,DIST2,NDISPS)
+
+USE FASTOVERLAPUTILS, ONLY : FFT3D, FINDPEAKS
+IMPLICIT NONE
+
+INTEGER, INTENT(INOUT) :: NDISPS
+INTEGER, INTENT(IN) :: NATOMS, NFSPACE
+LOGICAL, INTENT(IN) :: DEBUG
+COMPLEX*16, INTENT(IN) ::  FCOEFFS(NFSPACE,NFSPACE,NFSPACE)
+DOUBLE PRECISION, INTENT(IN) :: BOXLX, BOXLY, BOXLZ
+DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
+DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2
+
+COMPLEX*16 FSPACECMPLX(NFSPACE,NFSPACE,NFSPACE)
+DOUBLE PRECISION FSPACE(NFSPACE,NFSPACE,NFSPACE), DISPS(NDISPS,3), R(3,3), BESTDIST
+DOUBLE PRECISION AMPLITUDES(NDISPS)
+INTEGER J, J1
+
+CALL FFT3D(NFSPACE,NFSPACE,NFSPACE,FCOEFFS,FSPACECMPLX)
+FSPACE = ABS(FSPACECMPLX)
+
+CALL FINDPEAKS(FSPACE, DISPS, AMPLITUDES, NDISPS, DEBUG)
+IF (DEBUG) WRITE(MYUNIT,'(A,I3,A)') 'fastoverlap> found ', NDISPS, ' candidate displacements'
+
+DISPS = DISPS - 1.D0
+DISPS(:,1) = DISPS(:,1)*BOXLX/NFSPACE
+DISPS(:,2) = DISPS(:,2)*BOXLY/NFSPACE
+DISPS(:,3) = DISPS(:,3)*BOXLZ/NFSPACE
+
+BESTDIST = HUGE(BESTDIST)
+DUMMYB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
+DO J=1,NDISPS
+    DO J1=1,NATOMS
+        DUMMYA(J1*3-2:J1*3) = COORDSA(J1*3-2:J1*3) - DISPS(J,:)
+    ENDDO
+
+    IF (DEBUG) WRITE(MYUNIT,'(A,I3)') 'fastoverlap> testing displacement', J
+    IF (DEBUG) WRITE(MYUNIT,'(3G20.10)') DISPS(J,:)
+
+    CALL MINPERMDIST(DUMMYB,DUMMYA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,.TRUE.,.FALSE.,DISTANCE,DIST2,.FALSE.,R)
+
+    IF (DISTANCE.LT.BESTDIST) THEN
+        BESTDIST = DISTANCE
+        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> found new best alignment distance=', BESTDIST
+        XBESTA(1:3*NATOMS) = DUMMYA(1:3*NATOMS)
+    ELSE
+        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> best aligment distance found=', BESTDIST
+    ENDIF
+ENDDO
+
+IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> FINAL best aligment distance found=', BESTDIST
+
+
+COORDSA(1:3*NATOMS) = XBESTA(1:3*NATOMS)
+DISTANCE = BESTDIST
+DIST2 = BESTDIST**2
+
+END SUBROUTINE ALIGNCOEFFS
+
 SUBROUTINE SETWAVEK(NWAVE,WAVEK,BOXLX,BOXLY,BOXLZ)
 
 ! NWAVE: number of wavevectors >0 in any axis
@@ -352,6 +668,26 @@ DO J1=1,NPERMGROUP
 ENDDO
 
 END SUBROUTINE PERIODICFOURIERPERM
+
+SUBROUTINE DOTFOURIERCOEFFS(FCOEFFB,FCOEFFA,NWAVE,NCOEFF,FCOEFFS,NPERMGROUP)
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN) :: NPERMGROUP, NWAVE, NCOEFF
+COMPLEX*16, INTENT(IN) :: FCOEFFA(NCOEFF,NCOEFF,NCOEFF,NPERMGROUP),FCOEFFB(NCOEFF,NCOEFF,NCOEFF,NPERMGROUP)
+COMPLEX*16, INTENT(OUT) :: FCOEFFS(NCOEFF,NCOEFF,NCOEFF)
+
+INTEGER JX,JY,JZ
+
+DO JZ=1,2*NWAVE+1
+    DO JY=1,2*NWAVE+1
+        DO JX=1,2*NWAVE+1
+            FCOEFFS(JX,JY,JZ) = SUM(FCOEFFA(JX,JY,JZ,:)*FCOEFFB(JX,JY,JZ,:))
+        ENDDO
+    ENDDO
+ENDDO
+
+END SUBROUTINE DOTFOURIERCOEFFS
 
 SUBROUTINE CALCFSPACE(NATOMS,COORDSA,COORDSB,NWAVE,WAVEK,KWIDTH,NFSPACE,FSPACE)!,NPERMGROUP)
 !
@@ -534,231 +870,6 @@ IF(MKTRAPT) THEN
 ENDIF
 
 END SUBROUTINE CHECKKEYWORDS
-
-SUBROUTINE ALIGN(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KERNELWIDTH,NDISPLACEMENTS,DISTANCE,DIST2)
-! COORDSA becomes the optimal alignment of the optimal permutation of COORDSB
-
-USE FASTOVERLAPUTILS, ONLY: FASTLEN
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: NATOMS, NDISPLACEMENTS
-LOGICAL, INTENT(IN) :: DEBUG
-DOUBLE PRECISION, INTENT(IN) :: BOXLX, BOXLY, BOXLZ, KERNELWIDTH
-DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
-DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2
-
-
-DOUBLE PRECISION KWIDTH, MAXWAVEK
-INTEGER NWAVE, NFSPACE, NDISPS
-
-! Set KWIDTH to be 1/3 of the average interatomic separation
-IF (KERNELWIDTH.LE.0.D0) THEN
-    KWIDTH = (BOXLX*BOXLY*BOXLZ/NATOMS)**(1.D0/3.D0) / 3.D0
-    IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> kernel distance automatically set to ', KWIDTH
-ELSE
-    KWIDTH = KERNELWIDTH
-    IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> kernel distance set to ', KWIDTH
-ENDIF
-
-! Calculate number of wavevectors that we need to preserve reasonable level of accuracy
-MAXWAVEK = 1.5 / KWIDTH
-NWAVE = CEILING(2*3.14159265359/MIN(BOXLX,BOXLY,BOXLZ)*MAXWAVEK, 4)
-IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> max wavevector magnitude set to ', MAXWAVEK
-
-! Setting size of Fourier Transform array to be fast
-! This also increases the resolution of the method
-IF((2*NWAVE+1).LE.200) THEN
-    NFSPACE = FASTLEN(4*NWAVE+3)
-ELSE
-    ! PROBABLY NOT THE BEST WAY TO CALCULATE THIS!
-    NFSPACE = 2**CEILING(LOG(4.D0*NWAVE+3.D0)/LOG(2.D0),4)
-ENDIF
-IF (DEBUG) WRITE(MYUNIT,'(A,I4)') 'fastoverlap> overlap array resolution set to ', NFSPACE
-
-
-IF(NDISPLACEMENTS.EQ.0) THEN
-    NDISPS = 10
-ELSE
-    NDISPS = NDISPLACEMENTS
-END IF
-IF (DEBUG) WRITE(MYUNIT,'(A,I3)') 'fastoverlap> number of displacements to be tested = ', NDISPS
-
-!WRITE(*,*) "DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPLACEMENTS,NWAVE,NFSPACE"
-!WRITE(*,*) DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPS,NWAVE,NFSPACE
-CALL ALIGN1(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPS,NWAVE,NFSPACE)
-
-END SUBROUTINE ALIGN
-
-SUBROUTINE ALIGN1(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,KWIDTH,DISTANCE,DIST2,NDISPLACEMENTS,NWAVE,NFSPACE)
-
-USE COMMONS, ONLY: OHCELLT
-
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: NATOMS, NDISPLACEMENTS, NFSPACE, NWAVE
-LOGICAL, INTENT(IN) :: DEBUG
-DOUBLE PRECISION, INTENT(IN) :: BOXLX, BOXLY, BOXLZ, KWIDTH
-DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
-DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2
-
-DOUBLE PRECISION WAVEK(3, 2*NWAVE+1,2*NWAVE+1,2*NWAVE+1), K2, DISTSAVE
-DOUBLE PRECISION SAVEA(3*NATOMS), SAVEB(3*NATOMS)
-COMPLEX*16 FCOEFFS(NFSPACE,NFSPACE,NFSPACE), FCOEFFA(NFSPACE,NFSPACE,NFSPACE,NPERMGROUP), &
- & FCOEFFB(NFSPACE,NFSPACE,NFSPACE,NPERMGROUP), FCOEFFDUMMYA(NFSPACE,NFSPACE,NFSPACE,NPERMGROUP)
-INTEGER J, JX, JY, JZ, OPNUM, NDISPS, JXL, JYL, JZL, JXH, JYH, JZH, JXI, JYI, JZI
-
-CALL CHECKKEYWORDS()
-OHCELLTSAVE = OHCELLT
-OHCELLT = .FALSE.
-
-! Calculating Fourier Coefficients of COORDSA and COORDSB
-CALL SETWAVEK(NWAVE,WAVEK,BOXLX,BOXLY,BOXLZ)
-CALL PERIODICFOURIERPERM(COORDSA,NATOMS,NWAVE,NFSPACE,WAVEK,FCOEFFA,NPERMGROUP)
-CALL PERIODICFOURIERPERM(COORDSB,NATOMS,NWAVE,NFSPACE,WAVEK,FCOEFFB,NPERMGROUP)
-
-FCOEFFS = DCMPLX(0.D0, 0.D0)
-FCOEFFB = CONJG(FCOEFFB)
-
-! Calculating Fourier Coefficients of overlap integral
-DO JZ=1,2*NWAVE+1
-    DO JY=1,2*NWAVE+1
-        DO JX=1,2*NWAVE+1
-            K2 = EXP(-0.5D0 * (WAVEK(1,JX,JY,JZ)**2 + WAVEK(2,JX,JY,JZ)**2 + WAVEK(3,JX,JY,JZ)**2)*KWIDTH**2)
-            FCOEFFA(JX,JY,JZ,:) = FCOEFFA(JX,JY,JZ,:) * K2
-            FCOEFFB(JX,JY,JZ,:) = FCOEFFB(JX,JY,JZ,:) * K2
-            FCOEFFS(JX,JY,JZ) = SUM(FCOEFFA(JX,JY,JZ,:)*FCOEFFB(JX,JY,JZ,:))
-        ENDDO
-    ENDDO
-ENDDO
-
-!Set average overlap to 0
-FCOEFFS(NWAVE+1,NWAVE+1,NWAVE+1)=(0.D0,0.D0)
-
-SAVEB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
-
-IF (OHCELLTSAVE) THEN
-    DISTSAVE = HUGE(DISTSAVE)
-    DO OPNUM=1,48
-        IF (DEBUG) WRITE(MYUNIT,'(A,I2)') 'fastoverlap> Trying Oh symmetry operation number ',OPNUM
-        CALL OHOPS(COORDSA,SAVEA,OPNUM,NATOMS)
-    
-        ! Applying octahedral symmetry operation to FCOEFFA
-        JZL=0; JZH=2*NWAVE+1; JZI=1
-        IF(OHOPSMAT(3,3,OPNUM).EQ.(-1.D0))  JZH=0; JZL=2*NWAVE+1; JZI=-1
-        JYL=0; JYH=2*NWAVE+1; JYI=1
-        IF(OHOPSMAT(2,2,OPNUM).EQ.(-1.D0))  JYH=0; JYL=2*NWAVE+1; JYI=-1
-        JXL=0; JXH=2*NWAVE+1; JXI=1
-        IF(OHOPSMAT(1,1,OPNUM).EQ.(-1.D0))  JXH=0; JXL=2*NWAVE+1; JXI=-1
-        ! Reflecting axis is equivalent to reversing Fourier Coefficients
-        FCOEFFDUMMYA(1:2*NWAVE+1,1:2*NWAVE+1,1:2*NWAVE+1,:) = &
- & FCOEFFA(JXL:JXH:JXI,JXL:JXH:JXI,JXL:JXH:JXI,:)
-        
-        ! Recalculating Fourier Coefficients
-        FCOEFFS = DCMPLX(0.D0, 0.D0)
-        DO J=1,NPERMGROUP
-            DO JZ=1,2*NWAVE+1
-                DO JY=1,2*NWAVE+1
-                    DO JX=1,2*NWAVE+1
-                        FCOEFFS(JX,JY,JZ) = FCOEFFS(JX,JY,JZ) + &
-                        & FCOEFFDUMMYA(JX,JY,JZ,J)*FCOEFFB(JX,JY,JZ,J)
-                    ENDDO
-                ENDDO
-            ENDDO
-        ENDDO
-        FCOEFFS(NWAVE+1,NWAVE+1,NWAVE+1)=(0.D0,0.D0)
-
-        NDISPS = NDISPLACEMENTS
-        CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,DEBUG,FCOEFFS,NFSPACE,BOXLX,BOXLY,BOXLZ,DISTANCE,DIST2,NDISPS)
-
-        IF (DISTANCE.LT.DISTSAVE) THEN
-            IF (DEBUG) WRITE(MYUNIT,'(A,I2,A,G20.10)') &
- & 'fastoverlap> Oh symmetry operation ', OPNUM, ' found better alignment, distance=', distance
-            XBESTASAVE(1:3*NATOMS) = SAVEA(1:3*NATOMS)
-            DISTSAVE = DISTANCE
-        ELSE
-            IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
- & 'fastoverlap> overall best alignment distance=', distsave
-        ENDIF
-
-    ENDDO
-ELSE
-    IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> not testing Oh symmetry'
-
-    XBESTASAVE(1:3*NATOMS) = COORDSA(1:3*NATOMS)
-    NDISPS = NDISPLACEMENTS
-    CALL ALIGNCOEFFS(SAVEB,XBESTASAVE,NATOMS,DEBUG,FCOEFFS,NFSPACE,BOXLX,BOXLY,BOXLZ,DISTSAVE,DIST2,NDISPS)
-    
-    IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
- & 'fastoverlap> overall best alignment distance=', distsave
-ENDIF
-
-
-DISTANCE = DISTSAVE
-DIST2 = DISTANCE**2
-COORDSA(1:3*NATOMS) = XBESTASAVE(1:3*NATOMS)
-
-OHCELLT = OHCELLTSAVE
-
-END SUBROUTINE ALIGN1
-
-SUBROUTINE ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,DEBUG,FCOEFFS,NFSPACE,BOXLX,BOXLY,BOXLZ,DISTANCE,DIST2,NDISPS)
-
-USE FASTOVERLAPUTILS, ONLY : FFT3D, FINDPEAKS
-IMPLICIT NONE
-
-INTEGER, INTENT(INOUT) :: NDISPS
-INTEGER, INTENT(IN) :: NATOMS, NFSPACE
-LOGICAL, INTENT(IN) :: DEBUG
-COMPLEX*16, INTENT(IN) ::  FCOEFFS(NFSPACE,NFSPACE,NFSPACE)
-DOUBLE PRECISION, INTENT(IN) :: BOXLX, BOXLY, BOXLZ
-DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
-DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2
-
-COMPLEX*16 FSPACECMPLX(NFSPACE,NFSPACE,NFSPACE)
-DOUBLE PRECISION FSPACE(NFSPACE,NFSPACE,NFSPACE), DISPS(NDISPS,3), R(3,3), BESTDIST
-DOUBLE PRECISION AMPLITUDES(NDISPS)
-INTEGER J, J1
-
-CALL FFT3D(NFSPACE,NFSPACE,NFSPACE,FCOEFFS,FSPACECMPLX)
-FSPACE = ABS(FSPACECMPLX)
-
-CALL FINDPEAKS(FSPACE, DISPS, AMPLITUDES, NDISPS, DEBUG)
-IF (DEBUG) WRITE(MYUNIT,'(A,I3,A)') 'fastoverlap> found ', NDISPS, ' candidate displacements'
-
-DISPS = DISPS - 1.D0
-DISPS(:,1) = DISPS(:,1)*BOXLX/NFSPACE
-DISPS(:,2) = DISPS(:,2)*BOXLY/NFSPACE
-DISPS(:,3) = DISPS(:,3)*BOXLZ/NFSPACE
-
-BESTDIST = HUGE(BESTDIST)
-DUMMYB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
-DO J=1,NDISPS
-    DO J1=1,NATOMS
-        DUMMYA(J1*3-2:J1*3) = COORDSA(J1*3-2:J1*3) - DISPS(J,:)
-    ENDDO
-
-    IF (DEBUG) WRITE(MYUNIT,'(A,I3)') 'fastoverlap> testing displacement', J
-    IF (DEBUG) WRITE(MYUNIT,'(3G20.10)') DISPS(J,:)
-
-    CALL MINPERMDIST(DUMMYB,DUMMYA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,.TRUE.,.FALSE.,DISTANCE,DIST2,.FALSE.,R)
-
-    IF (DISTANCE.LT.BESTDIST) THEN
-        BESTDIST = DISTANCE
-        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> found new best alignment distance=', BESTDIST
-        XBESTA(1:3*NATOMS) = DUMMYA(1:3*NATOMS)
-    ELSE
-        IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> best aligment distance found=', BESTDIST
-    ENDIF
-ENDDO
-
-IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> FINAL best aligment distance found=', BESTDIST
-
-
-COORDSA(1:3*NATOMS) = XBESTA(1:3*NATOMS)
-DISTANCE = BESTDIST
-DIST2 = BESTDIST**2
-
-END SUBROUTINE ALIGNCOEFFS
 
 SUBROUTINE ALIGN2(COORDSB,COORDSA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,DISTANCE,DIST2,DISPBEST,NDISPS)
 
@@ -1022,6 +1133,525 @@ DO J1=1,NPERMGROUP
 ENDDO
 
 END SUBROUTINE GETDISPLACEMENT
+
+SUBROUTINE OHTRANSFORMCOEFFS(FCOEFF, FCOEFFDUMMY, NWAVE, NF2, NPERMGROUP, OPNUM)
+! Transforms coefficients by the corresponding octahedral transformation
+! NF2 = NCOEFF - NWAVE - 1
+
+! Code generated by the following python script:
+!Jstr = ['JX','JY','JZ']
+!Js = np.array(['','JX','JY','JZ','-JZ','-JY','-JX'])
+!prestring = """        DO J=1,NPERMGROUP
+!            DO JZ=-NWAVE,NWAVE
+!                DO JY=-NWAVE,NWAVE
+!                    DO JX=-NWAVE,NWAVE"""
+!poststring = """                    ENDDO
+!                ENDDO
+!            ENDDO
+!        ENDDO"""
+!arraystr = "                        FCOEFFDUMMY({0[0]},{0[1]},{0[2]},J) = FCOEFF({1[0]},{1[1]},{1[2]},J)"
+!
+!print 'SELECT CASE (OPNUM)'
+!for i in xrange(48):
+!    J, Iind = ohopsmat[:,:,i].T.nonzero()
+!    Jind = (Iind + 1) * ohopsmat[Iind,J,i].astype(int)
+!    print '    CASE ({})'.format(i+1)
+!    print prestring
+!    print arraystr.format(Jstr, Js[Jind])
+!    print poststring
+!print 'END SELECT'
+!
+IMPLICIT NONE
+INTEGER, INTENT(IN) :: NF2, NWAVE, NPERMGROUP, OPNUM
+COMPLEX*16, INTENT(IN) :: FCOEFF(-NWAVE:NF2,-NWAVE:NF2,-NWAVE:NF2,NPERMGROUP)
+COMPLEX*16, INTENT(OUT) :: FCOEFFDUMMY(-NWAVE:NF2,-NWAVE:NF2,-NWAVE:NF2,NPERMGROUP)
+
+INTEGER JX, JY, JZ, J
+
+SELECT CASE (OPNUM)
+    CASE (1)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JX,JY,JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (2)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JX,-JY,JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (3)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JZ,JX,JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (4)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JY,JX,JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (5)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JX,-JY,-JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (6)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JZ,-JX,JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (7)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JY,-JX,JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (8)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JX,JY,-JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (9)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JZ,-JX,-JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (10)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JZ,JX,-JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (11)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JY,JZ,JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (12)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JY,-JZ,JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (13)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JZ,-JY,JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (14)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JZ,JY,JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (15)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JZ,-JX,-JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (16)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JZ,JX,-JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (17)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JY,-JZ,-JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (18)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JY,JZ,-JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (19)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JZ,JY,-JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (20)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JZ,-JY,-JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (21)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JZ,JX,JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (22)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JZ,-JX,JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (23)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JX,-JY,-JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (24)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JX,JY,-JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (25)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JX,JZ,-JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (26)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JX,-JZ,-JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (27)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JX,-JZ,JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (28)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JX,JZ,JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (29)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JY,-JZ,-JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (30)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JY,JZ,-JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (31)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JY,JZ,JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (32)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JY,-JZ,JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (33)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JY,-JX,-JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (34)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JY,JX,-JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (35)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JX,JY,JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (36)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JX,-JY,JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (37)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JY,-JX,-JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (38)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JY,JX,-JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (39)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JZ,JY,-JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (40)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JZ,-JY,-JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (41)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JZ,-JY,JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (42)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JZ,JY,JX,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (43)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JX,-JZ,JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (44)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JX,JZ,JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (45)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JX,JZ,-JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (46)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JX,-JZ,-JY,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (47)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(JY,JX,JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+    CASE (48)
+        DO J=1,NPERMGROUP
+            DO JZ=-NWAVE,NWAVE
+                DO JY=-NWAVE,NWAVE
+                    DO JX=-NWAVE,NWAVE
+                        FCOEFFDUMMY(JX,JY,JZ,J) = FCOEFF(-JY,-JX,JZ,J)
+                    ENDDO
+                ENDDO
+            ENDDO
+        ENDDO
+END SELECT
+
+END SUBROUTINE OHTRANSFORMCOEFFS
 
 END MODULE BULKFASTOVERLAP
 

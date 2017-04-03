@@ -1,4 +1,142 @@
+! FCNPAK
+!
+!   DRIVER FOR TESTING CMLIB ROUTINES
+!     SINGLE PRECISION LEGENDRE ROUTINES IN FCNPAK
+!     DOUBLE PRECISION LEGENDRE ROUTINES IN FCNPAK
+!
+!    ONE INPUT DATA CARD IS REQUIRED
+!         READ(LIN,1) KPRINT,TIMES
+!    1    FORMAT(I1,E10.0)
+!
+!     KPRINT = 0   NO PRINTING
+!              1   NO PRINTING FOR PASSED TESTS, SHORT MESSAGE
+!                  FOR FAILED TESTS
+!              2   PRINT SHORT MESSAGE FOR PASSED TESTS, FULLER
+!                  INFORMATION FOR FAILED TESTS
+!              3   PRINT COMPLETE QUICK-CHECK RESULTS
+!
+!                ***IMPORTANT NOTE***
+!         ALL QUICK CHECKS USE ROUTINES R2MACH AND D2MACH
+!         TO SET THE ERROR TOLERANCES.
+!     TIMES IS A CONSTANT MULTIPLIER THAT CAN BE USED TO SCALE THE
+!     VALUES OF R1MACH AND D1MACH SO THAT
+!               R2MACH(I) = R1MACH(I) * TIMES   FOR I=3,4,5
+!               D2MACH(I) = D1MACH(I) * TIMES   FOR I=3,4,5
+!     THIS MAKES IT EASILY POSSIBLE TO CHANGE THE ERROR TOLERANCES
+!     USED IN THE QUICK CHECKS.
+!     IF TIMES .LE. 0.0 THEN TIMES IS DEFAULTED TO 1.0
+!
+!              ***END NOTE***
+!
 
+
+!FCNPAK   CMLIB
+!========================================================================
+!                           F C N P A K
+!========================================================================
+!  
+!  
+!Introduction
+!============
+!  
+!FCNPAK is a package of mathematical function subroutines. Its purpose is
+!to provide functions that are not readily available  elsewhere  or  that
+!are available only under restrictive licensing agreements. All  programs
+!in FCNPAK are coded  in  standard  Fortran.  They  are  designed  to  be
+!installed with little difficulty on  most  conventional  computers.  The
+!developers of FCNPAK - D. W. Lozier (NBS 711, lozier@nist.gov) and  J. M.
+!Smith (formerly of NBS 715)- would appreciate receiving feedback  from
+!users about the usefulness and applicability of the software.
+!  
+!  
+!Legendre Functions
+!==================
+!  
+!The package contains subroutines for computing the  associated  Legendre
+!functions, or Ferrers functions,
+!  
+!         P-subNU-superMU(cosTHETA), Q-subNU-superMU(cosTHETA)
+!  
+!as well as the normalized Legendre polynomial
+!  
+!                     PBAR-subNU-superMU(cosTHETA)
+!  
+!in the ranges
+!                        0 .LT. THETA .LE. PI/2
+!                           MU = 0, 1, 2, ...
+!                    -(1/2) .LE. NU .LT. INFINITY .
+!Negative integral values of  MU  may  be  specified  also  for  P-subNU-
+!superMU. NU is restricted to integers for PBAR-subNU-superMU.
+!  
+!An unusual feature of the FCNPAK subroutines for Legendre  functions  is
+!the use of extended-range arithmetic, a software extension  of  ordinary
+!floating-point arithmetic that greatly increases the exponent  range  of
+!the representable numbers. In consequence, we avoid the need for scaling
+!the solutions to lie within the exponent range of the  most  restrictive
+!manufacturer's hardware. The increased exponent  range  is  achieved  by
+!allocating an integer storage location together with each floating-point
+!storage location. The increase in  the  time  required  to  execute  the
+!algorithms in extended-range arithmetic depends on the  application.  In
+!the case of the normalized Legendre polynomials, testing shows it to  be
+!about a factor of two.  This is compensated in part by the lack  of  any
+!need for scaling operations in the algorithms  for  the  functions.  The
+!resulting function  values  are  supplied  in  ordinary  floating  point
+!whenever possible.
+!  
+!P and Q are solutions of the associated Legendre  equation.  Definitions
+!and properties of these and other solutions are supplied in
+!      Bateman Manuscript Project, "Higher Transcendental Functions,"
+!(A. Erdelyi, Ed.), v. 1, McGraw-Hill, New York, 1953
+!      National Bureau of Standards, "Handbook of Mathematical
+!Functions," AMS 55, (M. Abramowitz and I. A. Stegun, Eds.), U. S. GPO,
+!Washington, D. C., 1964
+!      F. W. J. Olver, "Asymptotics and Special Functions,"  Academic
+!Press, New York, 1974.
+!Algorithmic details for the subroutines in FCNPAK are supplied in
+!      J. M. Smith, F. W. J. Olver, and D. W. Lozier, "Extended-Range
+!Arithmetic and Normalized Legendre Polynomials," ACM Trans. on Math.
+!Softw., v. 7, no. 1, March 1981
+!      F. W. J. Olver and J. M. Smith, "Associated Legendre Functions On
+!The Cut," J. Comp. Physics, v. 51, no. 3, September 1983.
+!  
+!The names of the subroutines used for Legendre functions are
+!
+!     XDLEGF     XSLEGF     XDNRMP     XSNRMP
+! 
+!where the LEGF subroutines compute the double and single precision
+!associated Legendre functions and the NRMP subroutines compute the
+!double and single precision normalized Legendre polynomials.   The
+!algorithms used  in the LEGF  subroutines are  described in Smith,
+!Olver and  Lozier (1983), and  those used in the  NRMP subroutines
+!are described in  Olver and Smith (1983).  These subroutines  have
+!been incorporated in the CMLIB library and (with slight changes of
+!name) SLATEC library; see http://gams.nist.gov/serve.cgi/Class/C9.
+!
+!Two subroutines
+!
+!     XDCSRT     XSCSRT
+!
+!are provided for testing purposes. They can be used to construct tests
+!of computed results based on Casoratian relations.
+!
+!The names flagged by * in the list
+!
+!      XDADD*    XDC210*     XDPNRM     XDQMU      XDSET*      
+!      XDADJ*     XDPMU      XDPQNU     XDQNU
+!      XDCON*    XDPMUP       XDPSI     XDRED*
+!                                       
+!      XSADD*    XSC210*     XSPNRM     XSQMU      XSSET*      
+!      XSADJ*     XSPMU      XSPQNU     XSQNU
+!      XSCON*    XSPMUP       XSPSI     XSRED*
+!
+!support extended-range arithmetic, and the others are subsidiary to the
+!Legendre subroutines. The names that begin with XD are double-precision
+!subroutines, and those which begin with XS are single-precision subroutines.
+!XDSET  (and XSSET)  are initialization subroutines that must be called 
+!before any other extended-range subroutine is called. The Legendre function
+!subroutines do this for the user.
+! 
+!(updated July 21, 2010)
 
 
 

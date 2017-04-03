@@ -522,6 +522,7 @@ class SphericalHarmonicAlignFortran(BaseSphericalAlignment):
         self.harmscale=harmscale
         self.nmax=nmax
         self.fast = fastclusters
+        self.clus = fastclusters.clusterfastoverlap
         self.Natoms = Natoms
         if perm is not None:
             self.setPerm(perm)
@@ -538,9 +539,6 @@ class SphericalHarmonicAlignFortran(BaseSphericalAlignment):
         self.npermsize = map(len, perm)
         self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
         self.fast.fastoverlaputils.setperm(self.Natoms, self.permgroup, self.npermsize)
-    ##
-#    def malign(self, pos1, pos2, perm=None, invert=False, nrot=10, debug=False):
-#        return self(pos1, pos2, perm, invert, nrot, debug)
     ##
     def align(self, pos1, pos2, perm=None, invert=True, debug=False):
         return self(pos1, pos2, perm, invert, 1, debug)
@@ -587,9 +585,54 @@ class SphericalHarmonicAlignFortran(BaseSphericalAlignment):
         self.fast.clusterfastoverlap.setcluster()
         self.fast.commons.perminvopt = invert
         args = (coordsb,coordsa,debug,self.nmax,self.Jmax,self.harmscale,self.scale,nrot)
-        dist, _, rmatbest = self.fast.clusterfastoverlap.alignharm(*args)
+        dist, _, rmatbest = self.clus.alignharm(*args)
         return dist, coordsb.reshape(self.Natoms,3), coordsa.reshape(self.Natoms,3), rmatbest
+    ##
+    def compareList(self, poslist, perm=None):
+        """ Calculates the maximum and average overlap of a list of coordinates
         
+        Parameters
+        ----------
+        poslist : (nlist, Natoms, 3) array_like
+            list of coordinates that are being compared
+        perm : sequence of arrays, optional
+            Each array in perm represents a different permutation group
+            
+        Returns
+        -------
+        avgoverlap : (nlist,nlist) array
+            Array storing the array of average overlaps of the poslist
+        maxoverlap : (nlist,nlist) array
+            Array storing the array of maximum overlaps of the poslist
+        navgoverlap : (nlist,nlist) array
+            geometric mean normalised avgoverlap so,
+            navgoverlap[i,j] = avgoverlap[i,j]/sqrt(avgoverlap[i,i]*avgoverlap[j,j])
+        nmaxoverlap : (nlist,nlist) array
+            geometric mean normalised avgoverlap so,
+            nmaxoverlap[i,j] = maxoverlap[i,j]/sqrt(maxoverlap[i,i]*maxoverlap[j,j])
+        """
+        coords = np.array(poslist)
+        nlist, Natoms, dim = coords.shape
+        assert dim == 3
+        if perm is None:
+            if Natoms != self.Natoms:
+                self.Natoms = Natoms
+                self.setPerm([np.arange(self.Natoms)])
+        else:
+            self.setPerm(perm)
+        # Center coordinates
+        coords -= coords.mean(1)[:,None,:]
+        coordslist = np.rollaxis(coords.reshape(nlist,-1),-1)
+        avgoverlap, maxoverlap = self.clus.calcoverlapmatrices(
+            coordslist,self.nmax,self.Jmax,self.harmscale,self.scale)
+        diagavg = avgoverlap.diagonal()
+        diagmax = maxoverlap.diagonal()
+        navgoverlap = avgoverlap / sqrt(diagavg[:,None]*diagavg[None,:])
+        nmaxoverlap = maxoverlap / sqrt(diagmax[:,None]*diagmax[None,:])
+        return avgoverlap, maxoverlap, navgoverlap, nmaxoverlap
+    
+    
+    
 if __name__ == "__main__":
     import os
     import csv
