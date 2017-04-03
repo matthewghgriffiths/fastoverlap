@@ -68,33 +68,31 @@ class BasePeriodicAlignment(object):
         dist, saveperm, disp = min(distperm, key=lambda x: x[0])
         for i in range(niter):
             dxs = self.get_disp(x, (y-disp)[saveperm])
-            mediandx = median(dxs, axis=0)
-            disp += mediandx
+            disp -= dxs.mean(0)
             perm = self.Hungarian(x, y - disp[None,:])[1]
-            pos1 = self.periodic(x, True)
-            pos2 = (y - disp)[perm]
-            ## subtract mean displacement vector
-            dx = self.get_disp(pos1, pos2).mean(0)
-            disp -= dx
-            pos2 += dx[None,:]
             if all(p1==p2 for p1, p2 in zip(saveperm, perm)):
                 break
-        self.periodic(pos2)
+            else:
+                saveperm = perm
+        dxs = self.get_disp(x, (y-disp)[perm])
+        disp -= dxs.mean(0)
+        pos1 = self.periodic(x, True)
+        pos2 = self.periodic(y[perm] - disp)
         dist = self.get_dist(pos1, pos2)
         return dist, pos1, pos2, perm, disp
-    ##
+
     def periodic(self, x, copy=False):
         if copy:
             x = x.copy()
         x -= np.round(x / self.boxvec) * self.boxvec
         return x
-    ##
+
     def get_disp(self, X1, X2):
         return self.periodic(X1 - X2)
-    ##
+
     def get_dist(self, X1, X2):
         return norm(self.get_disp(X1, X2))
-    ##
+
     def cost_matrix(self, X1, X2):
         """
         Calculating this matrix is most of the computational cost associated
@@ -104,12 +102,12 @@ class BasePeriodicAlignment(object):
         disps = X1[None,:,:] - X2[:,None,:]
         disps -= np.round(disps / self.boxvec[None,None,:]) * self.boxvec[None,None,:]
         return norm(disps, axis=2)
-    ##
+
     def Hungarian(self, X1, X2):
         _, permlist = find_best_permutation(X1, X2, self.perm, user_cost_matrix=self.cost_matrix)
         dist = self.get_dist(X1, X2[permlist])
         return dist, permlist
-    ##
+
     def __call__(self, pos1, pos2, *args, **kwargs):
         return self.align(pos1, pos2, *args, **kwargs)
 
@@ -118,7 +116,7 @@ class FourierAlign(BasePeriodicAlignment):
     Alignment procedure based on a maximum likelihood method. 
     It's probably better to use the PeriodicGaussian class to align 
     periodic systems, this is included for completeness.
-    
+
     Parameters
     ----------
     Natoms : int 
@@ -127,25 +125,25 @@ class FourierAlign(BasePeriodicAlignment):
     permlist : optional
         list of allowed permutations. If nothing is given, all atoms will be
         considered as permutable. For no permutations give an empty list []
-    
-    
+
+
     For two structures $\vec{R}^0_j$ and $\vec{R}^1_j$
-    
+
     We want to find the optimal alignment such that we have a permutation matrix
     $\vec{P}$, global displacement $\vec{d}$ such that the local displacement
     $\sum |\vec{e}_j|^2$ is minimized.
-    
+
     \begin{equation}
     \vec{R}^0_j = \vec{P}(\vec{R}^1_j + \vec{e}_j + \vec{d}
     \end{equation}
 
-    We can define fourier coefficients for both structures as follows,     
+    We can define fourier coefficients for both structures as follows, 
     
     \begin{align}
     \tilde{C}_\vec{k}^0 = \frac{1}{L^3} \sum_j e^{-i\vec{k}\cdot\vec{R}_j}
     \tilde{C}_\vec{k}^1 = \frac{1}{L^3} \sum_j e^{-i\vec{k}\cdot\vec{R}'_j}
     \end{align}
-    
+
     The ratio of these coefficients will be, 
     
     \begin{equation}
@@ -165,7 +163,7 @@ class FourierAlign(BasePeriodicAlignment):
     \end{equation}
     
     To find $\vec{d}$ we define $\vec{d}=\vec{d}_0+\vec{d}_1$ so
-    
+
     \begin{align}
     \theta_{\vec{k}}^{\vec{d}_0} &=
     \Re{\left[
@@ -183,30 +181,30 @@ class FourierAlign(BasePeriodicAlignment):
     \right]},
     \end{align}
 
-    This means we can assume that $2 \pi n_\vec{k}$ is 0. 
+    This means we can assume that $2 \pi n_\vec{k}$ is 0.
     If we assume that the standard deviation of $\hat{e}_{\vec{k}}$ 
-    can be estimated to be, 
-    $\sigma(\hat{e}_{\vec{k}}) \approx F(1+|\vec{p}|^{-3})$, 
-    and we define $\sigma_\vec{k} = \sigma(\hat{e}_{\vec{k}}) 
-    |\vec{k}|\left/|\tilde{C}_{\vec{k}}^0|\right.$ 
+    can be estimated to be,
+    $\sigma(\hat{e}_{\vec{k}}) \approx F(1+|\vec{p}|^{-3})$,
+    and we define $\sigma_\vec{k} = \sigma(\hat{e}_{\vec{k}})
+    |\vec{k}|\left/|\tilde{C}_{\vec{k}}^0|\right.$
     then the log-likelihood of $\vec{d}$ can be calculated.
-	
+
     \begin{align}
     \log{\Pr(\vec{d}_1|\tilde{C}_{\vec{k}}^1,\tilde{C}_{\vec{k}}^0,
     \vec{d}_0,\sigma_\vec{k})} &= -
-    \sum_{\vec{k}\,\epsilon\,\vec{K}}  
+    \sum_{\vec{k}\,\epsilon\,\vec{K}}
     \frac{(\vec{k}\cdot\vec{d_1}-\theta_\vec{k}^{\vec{d}_0})^2}
     {2\sigma_{\vec{k}}^2}
     + \frac{1}{2}\log{2\pi} + \log{\sigma_{\vec{k}}}.
     \end{align}
-    
-    At the maximum likelihood the gradient of \ref{eqn:dloglikelihoodFull} 
+
+    At the maximum likelihood the gradient of \ref{eqn:dloglikelihoodFull}
     will be zero which  we can solve to find,
-    
+
     \begin{align}
-    \vec{d}_1 &= 
+    \vec{d}_1 &=
     \left(
-    \sum_{\vec{k}\,\epsilon\,\vec{K}}  \frac{\vec{k}\otimes\vec{k}}{\sigma_{\vec{k}}^2} 
+    \sum_{\vec{k}\,\epsilon\,\vec{K}}  \frac{\vec{k}\otimes\vec{k}}{\sigma_{\vec{k}}^2}
     \right)^{-1}
     \sum_{\vec{k}\,\epsilon\,\vec{K}}  \vec{k}
     \frac{\theta_\vec{k}^{\vec{d}_0}}
@@ -425,12 +423,12 @@ class PeriodicAlign(BasePeriodicAlignment):
             List/Tuple of the Fourier Coefficients of pos1 and pos2
         """
         if pos1 is not None:
-            self.pos1 = pos1
+            self.pos1[:] = np.asanyarray(pos1)
         if pos2 is not None:
-            self.pos2 = pos2
+            self.pos2[:] = np.asanyarray(pos2)
         if Cs is None:
-            self.calcFourierCoeff(pos1, self.C1)
-            self.calcFourierCoeff(pos2, self.C2)
+            self.calcFourierCoeff(self.pos1, self.C1)
+            self.calcFourierCoeff(self.pos2, self.C2)
         else:
             self.C1, self.C2 = Cs
         self.Csum = (((self.C1*self.C1.conj()).real + 
@@ -442,21 +440,25 @@ class PeriodicAlign(BasePeriodicAlignment):
         self.f[:] = np.fft.fftn(self.C, self.fshape)
         np.abs(self.f, out=self.fabs)
 
-    def findDisps(self, pos1, pos2, Cs=None, npeaks=2, width=2):
+    def findDisps(self, pos1, pos2, Cs=None, npeaks=1, width=2):
         self.setPos(pos1, pos2, Cs)
-#        disps = findPeaks(self.fabs, npeaks, width)[0]
-#        if len(disps):
-#            disps *= self.boxvec / self.fabs.shape
-#        else:
-#            disp = findMax(self.fabs) * self.boxvec / self.fabs.shape
-#            disps = disp[None,:]
-#        return disps
-        disp = findMax(self.fabs) * self.boxvec / self.fabs.shape
-        return disp[None,:]
+        if npeaks > 1:
+            # Do Gaussian fit, fair bit slower!
+            disps = findPeaks(self.fabs, npeaks, width)[0]
+            if len(disps):
+                disps *= self.boxvec / self.fabs.shape
+            else:
+                disp = findMax(self.fabs) * self.boxvec / self.fabs.shape
+                disps = disp[None,:]
+            return disps
+        else:
+            # Do simple quadratic fit
+            disp = findMax(self.fabs) * self.boxvec / self.fabs.shape
+            return disp[None,:]
 
-    def align(self, pos1, pos2, Cs=None, npeaks=2, width=2):
+    def align(self, pos1, pos2, Cs=None, npeaks=1, width=2):
         disps = self.findDisps(pos1, pos2, Cs, npeaks, width)
-        return self.refine(pos1, pos2, disps)
+        return self.refine(self.pos1, self.pos2, disps)
 
     def alignGroup(self, coords, keepCoords=False, npeaks=1, width=2):
         n = len(coords)
@@ -594,7 +596,7 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         else:
             scale = s
         dists, aligned = self.bulk.aligngroup(
-            coords, coords, False,
+            coordslist, coordslist, False,
             self.boxVec[0], self.boxVec[1], self.boxVec[2],
             scale, ndisps, nwave, ncoeff, True)
         aligned = aligned.reshape(natoms, 3, nlist, nlist)
