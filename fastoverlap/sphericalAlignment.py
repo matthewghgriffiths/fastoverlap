@@ -681,7 +681,7 @@ if __name__ == "__main__":
     # Testing on synthetic data
     rot = np.random.random((3,)) * np.array([2*pi, pi, 2*pi])
     rotM = EulerM(*rot)
-    pos3 = np.random.normal(size=(38,3))*2
+    pos3 = np.random.normal(size=(300,3))*2
     pos3 -= pos3.mean(0)[None,:]
     pos4 = pos3.dot(rotM.T)
     

@@ -908,16 +908,19 @@ FACT = 4.D0 * PI**2.5 * KWIDTH**3
 IMML = CMPLX(0.D0,0.D0,8)
 DO IA=1,NATOMS
     DO IB=1,NATOMS
-        R1R2 = 0.5D0 * RA(IA)*RB(IB)/KWIDTH**2
-        CALL SPHI(L, R1R2, K, IL)
-        TMP = FACT*EXPRA(IA)*EXPRB(IB)!*SQRT(PI/2/R1R2)
-        DO J=0,L
-            DO M2=-L,L
-                DO M1=-L,L
-                    IMML(M1,M2,J) = IMML(M1,M2,J) + IL(J)*YMLB(M1,J,IB)*CONJG(YMLA(M2,J,IA))*TMP
+        ! Don't calculate cross terms for points separated by 4 kwidths to speed up calculation
+        IF (ABS(RA(IA)-RB(IB)).LT.(4*KWIDTH)) THEN
+            R1R2 = 0.5D0 * RA(IA)*RB(IB)/KWIDTH**2
+            CALL SPHI(L, R1R2, K, IL)
+            TMP = FACT*EXPRA(IA)*EXPRB(IB)!*SQRT(PI/2/R1R2)
+            DO J=0,L
+                DO M2=-L,L
+                    DO M1=-L,L
+                        IMML(M1,M2,J) = IMML(M1,M2,J) + IL(J)*YMLB(M1,J,IB)*CONJG(YMLA(M2,J,IA))*TMP
+                    ENDDO
                 ENDDO
             ENDDO
-        ENDDO
+        END IF
     ENDDO
 ENDDO
 

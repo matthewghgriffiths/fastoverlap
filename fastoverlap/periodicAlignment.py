@@ -499,7 +499,7 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
 
     def __init__(self, Natoms, boxVec, scale=0, perm=None):
         self.Natoms = Natoms
-        self.boxVec = np.array(boxVec, dtype=float)
+        self.boxvec = np.array(boxVec, dtype=float)
         self.scale = scale
         self.fast = fastbulk
         self.bulk = self.fast.bulkfastoverlap
@@ -558,7 +558,7 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         coordsa = np.asanyarray(pos2).flatten()
         self.fast.commons.ohcellt = ohcell
         args = (coordsb, coordsa, False,
-                self.boxVec[0], self.boxVec[1], self.boxVec[2],
+                self.boxvec[0], self.boxvec[1], self.boxvec[2],
                 self.scale, ndisps)
         dist = self.fast.bulkfastoverlap.align(*args)[0]
         perm = self.fast.commons.bestperm.copy()
@@ -590,14 +590,14 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         assert dim == 3
         assert natoms == self.Natoms
         coordslist = coordslist.reshape(nlist, -1).T
-        s, nwave, ncoeff = self.bulk.calcdefaults(natoms, *self.boxVec)
+        s, nwave, ncoeff = self.bulk.calcdefaults(natoms, *self.boxvec)
         if self.scale == 0:
             scale = s
         else:
             scale = s
         dists, aligned = self.bulk.aligngroup(
             coordslist, coordslist, False,
-            self.boxVec[0], self.boxVec[1], self.boxVec[2],
+            self.boxvec[0], self.boxvec[1], self.boxvec[2],
             scale, ndisps, nwave, ncoeff, True)
         aligned = aligned.reshape(natoms, 3, nlist, nlist)
         return dists, aligned
