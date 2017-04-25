@@ -24,15 +24,8 @@ Algorithms for fast alignment of structures in finite and periodic systems.
 
 ## Compilation
 
-To use fortran extenstions using numpy.distutils
+To compile f2py modules run
 
 ```
-$ python setup.py build --fcompiler=gfortran
-$ python setup.py install [--user]
-```
-
-Building in place (note PYTHONPATH must then be modified)
-
-```
-$ python setup.py build_ext -i --fcompiler=gfortran
+$ ./compile.sh
 ```
