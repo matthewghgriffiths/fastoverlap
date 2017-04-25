@@ -22,11 +22,9 @@ findMax, findPeaks, findrotation, eval_grad_jacobi, calcThetaPhiR
     
 from soft import SOFT
 
-try:
-    import fastclusters
-    have_fortran=True
-except ImportError:
-    have_fortran=False
+import f90
+if f90.have_fortran:
+    fastclusters = f90.fastclusters
 
 class BaseSphericalAlignment(object):
     def calcSO3Coeffs(self, pos1, pos2):
@@ -654,14 +652,14 @@ if __name__ == "__main__":
     
     soap = SphericalAlign(scale, Jmax)
     harm = SphericalHarmonicAlign(scale, harmscale, Nmax, Jmax)
-    if have_fortran:
+    if f90.have_fortran:
         soapf = SphericalAlignFortran(scale, Jmax)
         harmf = SphericalHarmonicAlignFortran(scale, Jmax=Jmax, harmscale=harmscale, nmax=Nmax)
     
     print 'testing alignment on example LJ38 data, distance should = 1.4767'
     print 'SphericalAlign                Alignment:', soap(pos1, pos2)[0]
     print 'SphericalHarmonicAlign        Alignment:', harm(pos1, pos2)[0]
-    if have_fortran:
+    if f90.have_fortran:
         print 'SphericalAlignFortran         Alignment:', soapf(pos1, pos2)[0]
         print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos1, pos2)[0]
         
@@ -670,7 +668,7 @@ if __name__ == "__main__":
     
     print 'SphericalAlign                Alignment:', soap(pos1, -pos2)[0]
     print 'SphericalHarmonicAlign        Alignment:', harm(pos1, -pos2)[0]
-    if have_fortran:
+    if f90.have_fortran:
         print 'SphericalAlignFortran         Alignment:', soapf(pos1, -pos2)[0]
         print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos1, -pos2)[0]
 
@@ -687,7 +685,7 @@ if __name__ == "__main__":
     
     print 'SphericalAlign                Alignment:', soap(pos3, pos4)[0]
     print 'SphericalHarmonicAlign        Alignment:', harm(pos3, pos4)[0]
-    if have_fortran:
+    if f90.have_fortran:
         print 'SphericalAlignFortran         Alignment:', soapf(pos3, pos4)[0]
         print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos3, pos4)[0]
     
@@ -696,7 +694,7 @@ if __name__ == "__main__":
     
     print 'SphericalAlign                Alignment:', soap(pos3, -pos4)[0]
     print 'SphericalHarmonicAlign        Alignment:', harm(pos3, -pos4)[0]
-    if have_fortran:
+    if f90.have_fortran:
         print 'SphericalAlignFortran         Alignment:', soapf(pos3, -pos4)[0]
         print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos3, -pos4)[0]
         
@@ -711,7 +709,7 @@ if __name__ == "__main__":
     R = soft.indtoEuler(findMax(fout))
     print 'Euler angles from obtained from SOFT'
     print R
-    if have_fortran:
+    if f90.have_fortran:
         print 'Rotation matrix from minpermdist'
         print soapf(pos3, -pos4)[3]
         

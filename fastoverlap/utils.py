@@ -5,6 +5,7 @@ Created on Wed Feb 15 19:06:01 2017
 @author: mg542
 """
 from itertools import izip
+from heapq import heappop, heappush
 
 import numpy as np
 from numpy.linalg import norm
@@ -443,3 +444,68 @@ def EulerM(a, b, y):
                    (siny, cosy, 0),
                    (0,0,1)))
     return My.dot(Mb).dot(Ma)
+    
+def angle_axis2mat(vector):
+    ''' Rotation matrix of angle `theta` around `vector`
+    Parameters
+    ----------
+    vector : 3 element sequence
+       vector specifying axis for rotation. Norm of vector gives angle of
+       rotation.
+    Returns
+    -------
+    mat : array shape (3,3)
+       rotation matrix for specified rotation
+    Notes
+    -----
+    From: https://en.wikipedia.org/wiki/Rotation_matrix#Axis_and_angle
+    '''
+    vector = np.asanyarray(vector)
+    theta = norm(vector)
+    if theta==0.:
+        return np.eye(3)
+    x, y, z = vector/theta
+    c, s = cos(theta), sin(theta)
+    C = 1 - c
+    xs, ys, zs = x * s, y * s, z * s
+    xC, yC, zC = x * C, y * C, z * C
+    xyC, yzC, zxC = x * yC, y * zC, z * xC
+    return np.array([[x * xC + c, xyC - zs, zxC + ys],
+                     [xyC + zs, y * yC + c, yzC - xs],
+                     [zxC - ys, yzC + xs, z * zC + c]])
+                     
+def mat2angle_axis(M):
+    ''' Calculates rotation vector where the norm of the rotation vector
+    indicates the angle of rotation from a rotation matrix M
+    
+    Parameters
+    ----------
+    M : (3,3) array like
+        matrix encoding rotation matrix
+        
+    Returns
+    -------
+    v: array shape (3)
+        rotation vector
+    '''
+    M = np.asanyarray(M)
+    theta = np.arccos(0.5*np.trace(M)-0.5)
+    v = np.array([M[2,1]-M[1,2],M[0,2]-M[2,0],M[1,0]-M[0,1]])
+    v *= 0.5*theta/sin(theta)
+    return v
+    
+class PriorityQueueHeap(object):
+    def __init__(self):
+        self.heap = []
+        
+    def get(self):
+        return heappop(self.heap)
+        
+    def put(self, item):
+        heappush(self.heap, item)
+        
+    def empty(self):
+        return len(self.heap) == 0
+        
+    def qsize(self):
+        return len(self.heap)

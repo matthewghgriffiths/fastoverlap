@@ -1,14 +1,12 @@
 
 cd build
-gfortran -c -fPIC ../branchnbound/kdtree2.f90
+gfortran -c -fPIC ../fastoverlap/f90/kdtree2.f90
 ar crs libkdtree.a kdtree2.o
 
-gfortran -c -fPIC ../branchnbound/priorityqueue.f90
+gfortran -c -fPIC ../fastoverlap/f90/priorityqueue.f90
 ar crs libqueue.a priorityqueue.o
 
-cd ../branchnbound
-f2py -c bnbalign.f90 --fcompiler=gfortran -L../build -I../build -lkdtree -lqueue -m libbnb --link-lapack
-
-cd ../fastoverlap
+cd ../fastoverlap/f90
+f2py -c bnbalign.f90 --fcompiler=gfortran -L../../build -I../../build -lkdtree -lqueue -m libbnb --link-lapack
 f2py -c fastbulk.f90 -m fastbulk --link-lapack --link-fftw
-f2py -c fastcluster.f90 -m fastcluster --link-lapack --link-fftw
+f2py -c fastclusters.f90 -m fastclusters --link-lapack --link-fftw

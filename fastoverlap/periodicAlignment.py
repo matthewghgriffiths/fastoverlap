@@ -12,11 +12,9 @@ from scipy import median
 
 from utils import find_best_permutation, findMax, _next_fast_len, findPeaks
 
-try:
-    import fastbulk
-    have_fortran=True
-except ImportError:
-    have_fortran=False
+import f90
+if f90.have_fortran:
+    fastbulk = f90.fastbulk
 
 class BasePeriodicAlignment(object):
     def findDisps(self, pos1, pos2):
@@ -625,11 +623,11 @@ if __name__ == "__main__":
     permlist = [np.arange(ntypeA), np.arange(ntypeA, natoms)]
     overlap = PeriodicAlign(256, boxSize, permlist)
     align = FourierAlign(256, boxSize, permlist)
-    if have_fortran:
+    if f90.have_fortran:
         overlap_f = PeriodicAlignFortran(256, boxSize, perm=permlist)
 
     print 'PeriodicAlign aligment:', overlap(pos1, pos2)[0]
-    if have_fortran:
+    if f90.have_fortran:
         print 'PeriodicAlignFortran aligment:', overlap_f(pos1, pos2)[0]
 
 
