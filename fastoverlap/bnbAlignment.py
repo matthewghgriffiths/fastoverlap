@@ -349,13 +349,14 @@ if __name__ == "__main__":
     # You will get A LOT of print statements!    
     debug=False
         
-    datafolder = "../examples/LJ38"
+    
     def readFile(filename):
         with open(filename, 'rb') as f:
             reader = csv.reader(f, delimiter=' ')
             dist = [map(float, row) for row in reader]
         return np.array(dist)
     
+    datafolder = "../examples/LJ38"
     natoms = 38
     pos1 = readFile(os.path.join(datafolder, 'coords'))
     pos2 = readFile(os.path.join(datafolder, 'finish'))
@@ -365,12 +366,14 @@ if __name__ == "__main__":
     bnbpy = BranchandBoundMaster()
     
 
-    
+    raise
+        
     dpyclus, coordsb, coordsa = bnbpy(pos1, pos2)
     fig, axes = bnbpy.plot()
+    
     if f90.have_fortran:
         bnbcluster = BranchnBoundAlignment()
-        dcluster, coordsb, coordsa, rmat = bnbcluster(pos1, pos2, debug=False, niter=1e6)
+        dcluster, coordsb, coordsa, rmat = bnbcluster(pos1, pos2, debug=False, niter=10000)
            
     if f90.have_fortran:                  
         datafolder = "../examples/BLJ256"
@@ -386,7 +389,7 @@ if __name__ == "__main__":
         bnbbulk = BranchnBoundAlignment(invert=False, boxSize=boxSize)
         
         # Testing for octahderal symetries will take ~48 times longer!
-        dbulk, coordsab, coordsa = bnbbulk(pos1, pos2, debug=False, niter=1e6)
+        dbulk, coordsab, coordsa = bnbbulk(pos1, pos2, debug=False, niter=10000)
                               
     print 'Summary:'
     print 'Cluster alignment:'
