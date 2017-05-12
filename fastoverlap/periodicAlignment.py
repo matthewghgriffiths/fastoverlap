@@ -26,11 +26,11 @@ class BasePeriodicAlignment(object):
     ##
     def refine(self, x, y, disps,niter=10):
         """Given a displacement vector between two non-permutationally aligned
-        configurations, this will refine the displacement vector by 
+        configurations, this will refine the displacement vector by
         performing a permutational alignment followed by a calculation of the median
         displacement, followed by a second permutational alignment, and
         then finally setting the mean displacement to 0.
-                
+
         Parameters
         ----------
         pos1 : (Natoms, 3) array_like
@@ -41,7 +41,7 @@ class BasePeriodicAlignment(object):
             Number of different displacements to test
         niter : integer, optional
             Number of iterations of alignment refinement.
-            
+
         Returns
         -------
         distance : float
@@ -52,9 +52,9 @@ class BasePeriodicAlignment(object):
             Aligned coordinates of pos2
         perm : rank-1 array('i') with bounds (Natoms)
             permutation list of pos2
-        disp : (3) 
+        disp : (3)
             displacement
-        
+
         Notes:
         -------
         0 = self.get_dist(pos1, X1)
@@ -94,7 +94,7 @@ class BasePeriodicAlignment(object):
     def cost_matrix(self, X1, X2):
         """
         Calculating this matrix is most of the computational cost associated
-        with this algorithm for large databases, might be worth reimplementing 
+        with this algorithm for large databases, might be worth reimplementing
         this in c++/fortran?
         """
         disps = X1[None,:,:] - X2[:,None,:]
@@ -111,13 +111,13 @@ class BasePeriodicAlignment(object):
 
 class FourierAlign(BasePeriodicAlignment):
     """
-    Alignment procedure based on a maximum likelihood method. 
-    It's probably better to use the PeriodicGaussian class to align 
+    Alignment procedure based on a maximum likelihood method.
+    It's probably better to use the PeriodicGaussian class to align
     periodic systems, this is included for completeness.
 
     Parameters
     ----------
-    Natoms : int 
+    Natoms : int
     boxvec : array like floats
         defines periodicity of system being aligned
     permlist : optional
@@ -135,31 +135,31 @@ class FourierAlign(BasePeriodicAlignment):
     \vec{R}^0_j = \vec{P}(\vec{R}^1_j + \vec{e}_j + \vec{d}
     \end{equation}
 
-    We can define fourier coefficients for both structures as follows, 
-    
+    We can define fourier coefficients for both structures as follows,
+
     \begin{align}
     \tilde{C}_\vec{k}^0 = \frac{1}{L^3} \sum_j e^{-i\vec{k}\cdot\vec{R}_j}
     \tilde{C}_\vec{k}^1 = \frac{1}{L^3} \sum_j e^{-i\vec{k}\cdot\vec{R}'_j}
     \end{align}
 
-    The ratio of these coefficients will be, 
-    
+    The ratio of these coefficients will be,
+
     \begin{equation}
     \frac{\tilde{C}_{\vec{k}}^1}{\tilde{C}_{\vec{k}}^0}=
     e^{i\vec{k}\cdot\vec{d}} \frac
     {\sum_{j=1}^N e^{-i\vec{k}\cdot(\vec{R}_j+\vec{e}_j)}}
     {\sum_{j=1}^N e^{-i\vec{k}\cdot\vec{R}_j}}.
     \end{equation}
-    
+
     Taking a first order approximation of the local displacements we find
-    
+
     \begin{equation}
     \vec{k}\cdot\vec{d} = -i \textrm{log}
-    \left(\frac{\tilde{C}_{\vec{k}}^1}{\tilde{C}_{\vec{k}}^0} \right) 
+    \left(\frac{\tilde{C}_{\vec{k}}^1}{\tilde{C}_{\vec{k}}^0} \right)
     + i \log{\left( 1 - \frac{i\vec{k}\cdot\tilde{\vec{e}}_{\vec{k}}}{\tilde{C}_{\vec{k}}^0} \right)}
     +  2\pi n_\vec{k}
     \end{equation}
-    
+
     To find $\vec{d}$ we define $\vec{d}=\vec{d}_0+\vec{d}_1$ so
 
     \begin{align}
@@ -168,7 +168,7 @@ class FourierAlign(BasePeriodicAlignment):
     - i
     \textrm{log}
     \left(
-    \frac{\tilde{C}_{\vec{k}}^1}{\tilde{C}_{\vec{k}}^0} e^{i\vec{k}\cdot\vec{d}_0} 
+    \frac{\tilde{C}_{\vec{k}}^1}{\tilde{C}_{\vec{k}}^0} e^{i\vec{k}\cdot\vec{d}_0}
     \right)\right]} \\
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     \frac{|\vec{k}|}{|\tilde{C}_{\vec{k}}^0|} \hat{e}_{\vec{k}}
@@ -180,7 +180,7 @@ class FourierAlign(BasePeriodicAlignment):
     \end{align}
 
     This means we can assume that $2 \pi n_\vec{k}$ is 0.
-    If we assume that the standard deviation of $\hat{e}_{\vec{k}}$ 
+    If we assume that the standard deviation of $\hat{e}_{\vec{k}}$
     can be estimated to be,
     $\sigma(\hat{e}_{\vec{k}}) \approx F(1+|\vec{p}|^{-3})$,
     and we define $\sigma_\vec{k} = \sigma(\hat{e}_{\vec{k}})
@@ -209,7 +209,7 @@ class FourierAlign(BasePeriodicAlignment):
     {\sigma_{\vec{k}}^2},
     \end{align}
     """
-    def __init__(self, Natoms, box, permlist=None, dim=3, origin=None, 
+    def __init__(self, Natoms, box, permlist=None, dim=3, origin=None,
                  maxd=None, tol=None, maxdisps=10, likeThresh=2.):
         self.Natoms = Natoms
         self.boxvec = np.asanyarray(box, dtype=float)
@@ -288,11 +288,11 @@ class FourierAlign(BasePeriodicAlignment):
         self.startDisps *= 0.5 * self.boxvec[None,:] / self.absps.max()
     ##
     def FourierShift(self, pos1, pos2):
-        disps, logLikes = [np.concatenate(a) for a in 
+        disps, logLikes = [np.concatenate(a) for a in
                            zip(*[self.removeDuplicates(disp[:self.maxdisps], self.tol, likes[:self.maxdisps])
                                  for disp, likes in ((d[like-like[0]<self.likeThresh],
                                                       like[like-like[0]<self.likeThresh])
-                                 for d, like in (self.calcDispLogLike(pos1, pos2, self.startDisps, p) 
+                                 for d, like in (self.calcDispLogLike(pos1, pos2, self.startDisps, p)
                                                  for p in self.permlist))])]
         disps, logLikes = self.removeDuplicates(disps, self.tol, logLikes)
         return disps, logLikes
@@ -336,15 +336,15 @@ class FourierAlign(BasePeriodicAlignment):
 
     def findDisps(self, pos1, pos2):
         return self.FourierShift(pos1, pos2)[0]
-    
-    
+
+
 class PeriodicAlign(BasePeriodicAlignment):
     """
     Finds the best alignment between two configurations of a periodic system
-    
+
     Parameters
     ----------
-    Natoms : int 
+    Natoms : int
     boxvec : array like floats
         defines periodicity of system being aligned
     permlist : sequence of arrays,optional
@@ -359,8 +359,8 @@ class PeriodicAlign(BasePeriodicAlignment):
     dim : int, optional
         dimensionality of the system TODO: TEST
     """
-    def __init__(self, Natoms, boxvec, permlist=None, dim=3, 
-                 scale=None, maxk=None):       
+    def __init__(self, Natoms, boxvec, permlist=None, dim=3,
+                 scale=None, maxk=None):
         self.Natoms = Natoms
         self.boxvec = np.array(boxvec, dtype=float)
         self.dim = dim
@@ -429,11 +429,11 @@ class PeriodicAlign(BasePeriodicAlignment):
             self.calcFourierCoeff(self.pos2, self.C2)
         else:
             self.C1, self.C2 = Cs
-        self.Csum = (((self.C1*self.C1.conj()).real + 
-                      (self.C2*self.C2.conj()).real) * 
-                      np.exp(-self.absks[None,:]**2 * 
+        self.Csum = (((self.C1*self.C1.conj()).real +
+                      (self.C2*self.C2.conj()).real) *
+                      np.exp(-self.absks[None,:]**2 *
                       (self.scale**2))).real.sum() * 0.5 * self.factor
-        (self.C1 * self.C2.conj() * 
+        (self.C1 * self.C2.conj() *
          np.exp(-self.absks**2 * (self.scale**2))).sum(0, out=self.C)
         self.f[:] = np.fft.fftn(self.C, self.fshape)
         np.abs(self.f, out=self.fabs)
@@ -522,7 +522,7 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         self.fast.fastoverlaputils.setperm(self.Natoms, self.permgroup,
                                            self.npermsize)
 
-    def align(self, pos1, pos2, ndisps=10, perm=None, ohcell=False):
+    def align(self, pos1, pos2, ndisps=10, perm=None, ohcell=False, debug=False):
         """ Align two periodic structures, aligns and permutes pos2 to match
         pos1 as closely as possible.
 
@@ -555,7 +555,7 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         coordsb = np.asanyarray(pos1).flatten()
         coordsa = np.asanyarray(pos2).flatten()
         self.fast.commons.ohcellt = ohcell
-        args = (coordsb, coordsa, False,
+        args = (coordsb, coordsa, debug,
                 self.boxvec[0], self.boxvec[1], self.boxvec[2],
                 self.scale, ndisps)
         dist = self.fast.bulkfastoverlap.align(*args)[0]

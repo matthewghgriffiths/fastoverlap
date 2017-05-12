@@ -24,12 +24,12 @@
 !
 !  MYORIENT is called first for both COORDSA and COORDSB to put them into
 !  a standard orientation in DUMMYA and DUMMYB (which both have the centre of
-!  coordinates at the origin). 
-!  The objective is to identify permutation-inversion isomers without fail. 
+!  coordinates at the origin).
+!  The objective is to identify permutation-inversion isomers without fail.
 !  However, we have to cycle over all equivalent atoms in two particular orbits for DUMMYA
 !  to achieve this.
 !  We iterate permutations and newmindist minimisations up to a maximum number or
-!  until no more permutations are required for each instance of DUMMYA aligned 
+!  until no more permutations are required for each instance of DUMMYA aligned
 !  according to NCHOOSE1 and NCHOOSE2 by MYORIENT. The cumulative rotation
 !  matrix that takes the initial DUMMYA to the one that aligns best with DUMMYB
 !  is saved in RMATCUMUL.
@@ -41,7 +41,7 @@
 !  fixed end points for DNEB.
 !  Finally, we transform COORDSA to be in optimal alignment, but without the
 !  permutations in XBEST. The overall transformation is
-!  COORDSA -> +/- ROTINVB RMATCUMUL ROTA (COORDSA - CMA) 
+!  COORDSA -> +/- ROTINVB RMATCUMUL ROTA (COORDSA - CMA)
 !
 !  The correspondence between COORDSA and DUMMYA after DUMMYA has been aligned by
 !  newmindist is
@@ -166,7 +166,7 @@ DISTANCE = 0.0D0
 !
 CMAX=0.0D0; CMAY=0.0D0; CMAZ=0.0D0
 IF ((NFREEZE.GT.0).OR.(MKTRAPT)) GOTO 11 ! don;t shift or reorient coordinates with frozen atoms
-IF (STOCKT.OR.RIGID) THEN 
+IF (STOCKT.OR.RIGID) THEN
    DO J1=1,NATOMS/2
       CMAX=CMAX+COORDSA(3*(J1-1)+1)
       CMAY=CMAY+COORDSA(3*(J1-1)+2)
@@ -237,9 +237,9 @@ ENDDO
 !
 ! Problems can occur if we don't use all the atoms specified by NORBIT1 and NORBIT2
 ! because of the numerical cutoffs employed in MYORIENT. We could miss the
-! right orientation! 
+! right orientation!
 !
-! If we use MYORIENT to produce particular orientations then we end up aligning 
+! If we use MYORIENT to produce particular orientations then we end up aligning
 ! COORDSA not with COORDSB but with the standard orientation of COORDSB in DUMMYB.
 ! We now deal with this by tracking the complete transformation, including the
 ! contribution of MYORIENT using ROTB and ROTINVB.
@@ -316,7 +316,7 @@ IF ((NFREEZE.LE.0).AND.(.NOT.CSMT).AND.(.NOT.PERMOPT).AND.(.NOT.PERMINVOPT)) THE
          ENDDO
       ENDIF
       CALL MYORIENT(DUMMYC,DUMMY,NORBIT1,NCHOOSE1,NORBIT2,NCHOOSE2,NATOMS,DEBUG,ROTA,ROTINVA,STOCKT)
-      
+
       DUMMYA(1:3*NATOMS)=DUMMY(1:3*NATOMS)
       CALL MYORIENT(DUMMYB,DUMMY,NORBITB1,NCHOOSEB1,NORBITB2,NCHOOSEB2,NATOMS,DEBUG,ROTB,ROTINVB,STOCKT)
       DUMMYB(1:3*NATOMS)=DUMMY(1:3*NATOMS)
@@ -432,7 +432,7 @@ IF (DEBUG) WRITE(MYUNIT,'(A,4I8)') 'minpermdist> size of orbits and selected ato
 
 NTRIES=0
 !
-!  RMATCUMUL contains the accumulated rotation matrix that relates the original 
+!  RMATCUMUL contains the accumulated rotation matrix that relates the original
 !  DUMMYA obtained from COORDSA to the final one.
 !
 RMATCUMUL(1:3,1:3)=0.0D0
@@ -488,7 +488,7 @@ ENDDO
 
 !
 ! Update the overall permutation here.
-! 
+!
 DO J1=1,NATOMS
    SAVEPERM(ALLPERM(J1))=ALLPERM(NEWPERM(J1))
 ENDDO
@@ -557,7 +557,7 @@ IF (DEBUG) WRITE(MYUNIT,'(A,I6,A,G20.10)') 'minpermdist> distance after permutin
 !  Optimal alignment. Coordinates in DUMMYA are reset by NEWMINDIST (second argument).
 !  Must allow at least one call to NEWMINDIST in case the MYORIENT result is terrible
 !  but gives zero permutations!
-!  
+!
 !          IF (DEBUG) THEN
 !             OPEN(UNIT=765,FILE='DUMMYB.xyz',STATUS='UNKNOWN')
 !             NDUMMY=(NATOMS/CSMGPINDEX)
@@ -579,7 +579,7 @@ IF (DEBUG) WRITE(MYUNIT,'(A,I6,A,G20.10)') 'minpermdist> distance after permutin
 !          ENDIF
 ! STOP
 
-IF ((NPERM.NE.0).OR.(NTRIES.EQ.1)) THEN 
+IF ((NPERM.NE.0).OR.(NTRIES.EQ.1)) THEN
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !  PRINT '(A)','DUMMYA before NEWMINDIST:'
@@ -587,13 +587,12 @@ IF ((NPERM.NE.0).OR.(NTRIES.EQ.1)) THEN
 !  PRINT '(A)','DUMMYB before NEWMINDIST:'
 !  PRINT '(3F20.10)',DUMMYB(1:3*(NATOMS/2))
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
    CALL NEWMINDIST(DUMMYB,DUMMYA,NATOMS,DISTANCE,BULKT,TWOD,'AX    ',.FALSE.,RIGID,DEBUG,RMAT)
    RMATCUMUL=MATMUL(RMAT,RMATCUMUL)
    DISTANCE=DISTANCE**2 ! we are using DISTANCE^2 further down
 
    IF (DEBUG) WRITE(MYUNIT,'(A,G20.10,A,I6)')  'minpermdist> distance after NEWMINDIST=                     ',SQRT(DISTANCE), &
-  &           ' tries=',NTRIES  
+  &           ' tries=',NTRIES
    CALL FLUSH(MYUNIT)
    IF ((NTRIES.LT.MAXIMUMTRIES).AND.(DISTANCE.LT.PDISTANCE)) THEN
 !     WRITE(MYUNIT,'(A,I6,2G20.10)') 'NTRIES,DISTANCE,PDISTANCE=',NTRIES,DISTANCE,PDISTANCE
@@ -611,8 +610,8 @@ IF (DISTANCE.LT.DBEST) THEN
    BESTPERM(1:NATOMS)=ALLPERM(1:NATOMS)
    BESTINVERT=INVERT
    RMATBEST(1:3,1:3)=RMATCUMUL(1:3,1:3)
-   ROTINVBBEST(1:3,1:3)=ROTINVB(1:3,1:3) 
-   ROTABEST(1:3,1:3)=ROTA(1:3,1:3)      
+   ROTINVBBEST(1:3,1:3)=ROTINVB(1:3,1:3)
+   ROTABEST(1:3,1:3)=ROTA(1:3,1:3)
    RMATBEST=MATMUL(RMATBEST,ROTABEST)
    IF (INVERT.EQ.-1) THEN
       IF (TWOD.OR.PULLT.OR.EFIELDT) THEN ! reflect in xz plane rather than invert!
@@ -624,7 +623,7 @@ IF (DISTANCE.LT.DBEST) THEN
 ENDIF
 
 !
-! If GEOMDIFFTOL is set too small we could miss the best solution by exiting prematurely. 
+! If GEOMDIFFTOL is set too small we could miss the best solution by exiting prematurely.
 ! Turn off the next line?!
 !
 IF (SQRT(DBEST).LT.GEOMDIFFTOL/1.0D2) GOTO 50
@@ -642,7 +641,7 @@ IF ((NCHOOSE2.EQ.NORBIT2).AND.(NCHOOSE1.EQ.NORBIT1).AND.(INVERT.EQ.1)) THEN
 ! don't try inversion for bulk or charmm or amber or frozen atoms or CSM or PERMOPT
 ! Need keyword PERMINVOPT to do permutation-inversions.
 !
-   IF (NOINVERSION.OR.BULKT.OR.CHRMMT.OR.AMBERT.OR.AMBER12T.OR.QCIAMBERT.OR.(NFREEZE.GT.0).OR.CSMT.OR.PERMOPT) GOTO 50 
+   IF (NOINVERSION.OR.BULKT.OR.CHRMMT.OR.AMBERT.OR.AMBER12T.OR.QCIAMBERT.OR.(NFREEZE.GT.0).OR.CSMT.OR.PERMOPT) GOTO 50
    IF (DEBUG) WRITE(MYUNIT,'(A)') 'minpermdist> inverting geometry for comparison with target'
    INVERT=-1
    GOTO 60
@@ -651,9 +650,9 @@ ENDIF
 50 DISTANCE=DBEST
 !
 !  XBEST contains the best alignment of A coordinates for the orientation of B coordinates in DUMMYB.
-!  Rotate XBEST by ROTINVB to put in best correspondence with COORDSB, undoing the reorientation to DUMMYB from MYORIENT. 
-!  We should get the same result for ROTINVB * RMATBEST * (COORDSA-CMA) 
-!  where RMATBEST = +/- RMATCUMUL * ROTA for the best alignment 
+!  Rotate XBEST by ROTINVB to put in best correspondence with COORDSB, undoing the reorientation to DUMMYB from MYORIENT.
+!  We should get the same result for ROTINVB * RMATBEST * (COORDSA-CMA)
+!  where RMATBEST = +/- RMATCUMUL * ROTA for the best alignment
 !  (aside from a possible permutation of the atom ordering)
 !
    IF (BULKT) THEN
@@ -705,7 +704,7 @@ ENDIF
    ELSE
       RMATBEST=MATMUL(ROTINVB,RMATBEST)
    ENDIF
-   IF (DEBUG) THEN 
+   IF (DEBUG) THEN
       WRITE(MYUNIT, '(A)') 'RMATBEST:'
       WRITE(MYUNIT, '(3F20.10)') RMATBEST(1:3,1:3)
    ENDIF

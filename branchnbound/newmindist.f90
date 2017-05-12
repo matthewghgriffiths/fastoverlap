@@ -58,8 +58,8 @@ IF (MKTRAPT) THEN
    ENDDO
    DIST=SQRT(DIST)
    RETURN
-! 
-! Convert rigid body coordinates to Cartesians for rigid bodies. 
+!
+! Convert rigid body coordinates to Cartesians for rigid bodies.
 !
 ELSE IF (ZUSE(1:1).EQ.'W') THEN
    ALLOCATE(XA(3*3*(NATOMS/2)),XB(3*3*(NATOMS/2)))
@@ -145,15 +145,15 @@ DO J1=1,NSIZE
 ENDDO
 
 !!  MG542 not implementing TWOD for time being.
-!! Deal with TWO2 non-bulk here. 
+!! Deal with TWO2 non-bulk here.
 !!
 !IF (TWOD.AND.(.NOT.BULKT)) THEN
 !   CALL MINDIST(XA,XB,NATOMS,DIST,BULKT,TWOD,ZUSE,PRESERVET)
 !   RMAT(1:3,1:3)=OMEGATOT(1:3,1:3)
-!!  
+!!
 !!  To align the structures for minpermdist we use the orientation in XA
 !!  and translate the B coordinates to the centre of coordinates of RA.
-!!  
+!!
 !   IF (.NOT.PRESERVET) THEN
 !      DO J1=1,NATOMS
 !         RB(3*(J1-1)+1)=XB(3*(J1-1)+1)-CMXB+CMXA+XSHIFT
@@ -162,12 +162,12 @@ ENDDO
 !      ENDDO
 !   ENDIF
 !   RETURN
-!ENDIF 
+!ENDIF
 
 
 XSHIFT=0.0D0; YSHIFT=0.0D0; ZSHIFT=0.0D0
 NCIT=0
-IF (BULKT) THEN 
+IF (BULKT) THEN
 ! 1  NCIT=NCIT+1
 !    IF (NCIT.GT.1000) THEN
 !       PRINT '(A)','inertia> WARNING - iterative calculation of centre of mass shift did not converge'
@@ -196,6 +196,20 @@ IF (BULKT) THEN
 ! Actually, the iterative solution seems to be worse than simply putting the centre of mass
 ! at the origin.
 !
+   DO J1=1,NSIZE
+      XSHIFT = XSHIFT + XA(3*(J1-1)+1)-XB(3*(J1-1)+1) !- BOXLX*NINT((XA(3*(J1-1)+1)-XB(3*(J1-1)+1)-XSHIFT)/BOXLX)
+      YSHIFT = YSHIFT + XA(3*(J1-1)+2)-XB(3*(J1-1)+2) !- BOXLY*NINT((XA(3*(J1-1)+2)-XB(3*(J1-1)+2)-YSHIFT)/BOXLY)
+      ZSHIFT = ZSHIFT + XA(3*(J1-1)+3)-XB(3*(J1-1)+3) !- BOXLZ*NINT((XA(3*(J1-1)+3)-XB(3*(J1-1)+3)-ZSHIFT)/BOXLZ)
+   ENDDO
+
+   XSHIFT = XSHIFT/NSIZE; YSHIFT = YSHIFT/NSIZE; ZSHIFT = ZSHIFT/NSIZE
+
+      DIST=DIST + (XA(3*(J1-1)+1)-XB(3*(J1-1)+1)-XSHIFT - BOXLX*NINT((XA(3*(J1-1)+1)-XB(3*(J1-1)+1)-XSHIFT)/BOXLX))**2 &
+   &            + (XA(3*(J1-1)+2)-XB(3*(J1-1)+2)-YSHIFT - BOXLY*NINT((XA(3*(J1-1)+2)-XB(3*(J1-1)+2)-YSHIFT)/BOXLY))**2 &
+   &            + (XA(3*(J1-1)+3)-XB(3*(J1-1)+3)-ZSHIFT - BOXLZ*NINT((XA(3*(J1-1)+3)-XB(3*(J1-1)+3)-ZSHIFT)/BOXLZ))**2
+   ENDDO
+
+
    DIST=0.0D0
    DO J1=1,NSIZE
       DIST=DIST + (XA(3*(J1-1)+1)-XB(3*(J1-1)+1)-XSHIFT - BOXLX*NINT((XA(3*(J1-1)+1)-XB(3*(J1-1)+1)-XSHIFT)/BOXLX))**2 &
@@ -210,7 +224,7 @@ ELSE
 !  The formula below is not invariant to overall translation because XP, YP, ZP
 !  involve a sum of coordinates! We need to have XA and XB coordinate centres both
 !  at the origin!!
-!  
+!
    QMAT(1:4,1:4)=0.0D0
 !  PRINT *,'XA:'
 !  PRINT '(6G20.10)',XA(1:3*NATOMS)
@@ -274,7 +288,7 @@ ENDIF
 
 !
 !  Needs some thought for the angle/axis rigid body formulation.
-! 
+!
 
 IF (.NOT.PRESERVET) THEN
    IF (ZUSE(1:1).EQ.'W') THEN
@@ -294,9 +308,9 @@ IF (.NOT.PRESERVET) THEN
    ELSEIF (RIGIDBODY) THEN
       WRITE(MYUNIT,'(A)') 'newmindist> back transformation not programmed yet for rigid bodies'
    ENDIF
-!  
+!
 !  Translate the RB coordinates to the centre of coordinates of RA.
-!  
+!
    DO J1=1,NATOMS
       RB(3*(J1-1)+1)=RB(3*(J1-1)+1)-CMXB+CMXA+XSHIFT
       RB(3*(J1-1)+2)=RB(3*(J1-1)+2)-CMYB+CMYA+YSHIFT

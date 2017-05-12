@@ -302,8 +302,8 @@ class BranchnBoundAlignment(object):
             self.Natoms = len(pos1)
             self.setPerm([np.arange(self.Natoms)])
             
-        self.coordsb = np.asanyarray(pos1).flatten()
-        self.coordsa = np.asanyarray(pos2).flatten()
+        self.coordsb = np.array(pos1).flatten()
+        self.coordsa = np.array(pos2).flatten()
         self.gopermdist.initialise(
             self.coordsb, self.coordsa, self.boxvec[0], self.boxvec[1], 
             self.boxvec[2], self.bulk)
@@ -334,7 +334,7 @@ class BranchnBoundAlignment(object):
         self.gopermdist.run(niter,force,iprint,bestupper)
         bestid = self.gopermdist.bestid.item()-1
         coordsb = self.gopermdist.savecoordsb.reshape(pos1.shape)
-        coordsa = self.gopermdist.savecoordsa[:,bestid].reshape(pos2.shape)
+        coordsa = self.gopermdist.bestcoordsa[:,bestid].reshape(pos2.shape)
         if self.bulk:
             return bestupper.item(), coordsb, coordsa
         else:

@@ -58,8 +58,8 @@ IF (MKTRAPT) THEN
    ENDDO
    DIST=SQRT(DIST)
    RETURN
-! 
-! Convert rigid body coordinates to Cartesians for rigid bodies. 
+!
+! Convert rigid body coordinates to Cartesians for rigid bodies.
 !
 ELSE IF (ZUSE(1:1).EQ.'W') THEN
    ALLOCATE(XA(3*3*(NATOMS/2)),XB(3*3*(NATOMS/2)))
@@ -116,44 +116,76 @@ ELSE
    XA(1:3*NATOMS)=RA(1:3*NATOMS)
    XB(1:3*NATOMS)=RB(1:3*NATOMS)
 ENDIF
+
 !
 ! Move centre of coordinates of XA and XB to the origin.
 !
+!CMXA=0.0D0; CMYA=0.0D0; CMZA=0.0D0
+!DO J1=1,NSIZE
+!   CMXA=CMXA+XA(3*(J1-1)+1)
+!   CMYA=CMYA+XA(3*(J1-1)+2)
+!   CMZA=CMZA+XA(3*(J1-1)+3)
+!ENDDO
+!CMXA=CMXA/NSIZE; CMYA=CMYA/NSIZE; CMZA=CMZA/NSIZE
+!DO J1=1,NSIZE
+!   XA(3*(J1-1)+1)=XA(3*(J1-1)+1)-CMXA
+!   XA(3*(J1-1)+2)=XA(3*(J1-1)+2)-CMYA
+!   XA(3*(J1-1)+3)=XA(3*(J1-1)+3)-CMZA
+!ENDDO
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!mg542!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! mg542 superimposing COM means adding relative displacement meaningless
 CMXA=0.0D0; CMYA=0.0D0; CMZA=0.0D0
-DO J1=1,NSIZE
-   CMXA=CMXA+XA(3*(J1-1)+1)
-   CMYA=CMYA+XA(3*(J1-1)+2)
-   CMZA=CMZA+XA(3*(J1-1)+3)
-ENDDO
-CMXA=CMXA/NSIZE; CMYA=CMYA/NSIZE; CMZA=CMZA/NSIZE
-DO J1=1,NSIZE
-   XA(3*(J1-1)+1)=XA(3*(J1-1)+1)-CMXA
-   XA(3*(J1-1)+2)=XA(3*(J1-1)+2)-CMYA
-   XA(3*(J1-1)+3)=XA(3*(J1-1)+3)-CMZA
-ENDDO
 CMXB=0.0D0; CMYB=0.0D0; CMZB=0.0D0
-DO J1=1,NSIZE
-   CMXB=CMXB+XB(3*(J1-1)+1)
-   CMYB=CMYB+XB(3*(J1-1)+2)
-   CMZB=CMZB+XB(3*(J1-1)+3)
-ENDDO
-CMXB=CMXB/NSIZE; CMYB=CMYB/NSIZE; CMZB=CMZB/NSIZE
-DO J1=1,NSIZE
-   XB(3*(J1-1)+1)=XB(3*(J1-1)+1)-CMXB
-   XB(3*(J1-1)+2)=XB(3*(J1-1)+2)-CMYB
-   XB(3*(J1-1)+3)=XB(3*(J1-1)+3)-CMZB
-ENDDO
+IF(BULKT) THEN
+   XA(1:3*NATOMS)=RA(1:3*NATOMS)
+   XB(1:3*NATOMS)=RB(1:3*NATOMS)
+   DO J1=1,NSIZE
+      XB(3*J1-2)=XB(3*J1-2) + BOXLX*NINT((XA(3*J1-2)-XB(3*J1-2))/BOXLX)
+      XB(3*J1-1)=XB(3*J1-1) + BOXLY*NINT((XA(3*J1-1)-XB(3*J1-1))/BOXLY)
+      XB(3*J1  )=XB(3*J1  ) + BOXLZ*NINT((XA(3*J1  )-XB(3*J1  ))/BOXLZ)
+   ENDDO
+ELSE
+   !
+   ! Move centre of coordinates of XA and XB to the origin.
+   !
+   CMXA=0.0D0; CMYA=0.0D0; CMZA=0.0D0
+   DO J1=1,NSIZE
+      CMXA=CMXA+XA(3*(J1-1)+1)
+      CMYA=CMYA+XA(3*(J1-1)+2)
+      CMZA=CMZA+XA(3*(J1-1)+3)
+   ENDDO
+   CMXA=CMXA/NSIZE; CMYA=CMYA/NSIZE; CMZA=CMZA/NSIZE
+   DO J1=1,NSIZE
+      XA(3*(J1-1)+1)=XA(3*(J1-1)+1)-CMXA
+      XA(3*(J1-1)+2)=XA(3*(J1-1)+2)-CMYA
+      XA(3*(J1-1)+3)=XA(3*(J1-1)+3)-CMZA
+   ENDDO
+      CMXB=0.0D0; CMYB=0.0D0; CMZB=0.0D0
+      DO J1=1,NSIZE
+         CMXB=CMXB+XB(3*(J1-1)+1)
+         CMYB=CMYB+XB(3*(J1-1)+2)
+         CMZB=CMZB+XB(3*(J1-1)+3)
+      ENDDO
+      CMXB=CMXB/NSIZE; CMYB=CMYB/NSIZE; CMZB=CMZB/NSIZE
+      DO J1=1,NSIZE
+         XB(3*(J1-1)+1)=XB(3*(J1-1)+1)-CMXB
+         XB(3*(J1-1)+2)=XB(3*(J1-1)+2)-CMYB
+         XB(3*(J1-1)+3)=XB(3*(J1-1)+3)-CMZB
+      ENDDO
+ENDIF
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!mg542!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 !!  MG542 not implementing TWOD for time being.
-!! Deal with TWO2 non-bulk here. 
+!! Deal with TWO2 non-bulk here.
 !!
 !IF (TWOD.AND.(.NOT.BULKT)) THEN
 !   CALL MINDIST(XA,XB,NATOMS,DIST,BULKT,TWOD,ZUSE,PRESERVET)
 !   RMAT(1:3,1:3)=OMEGATOT(1:3,1:3)
-!!  
+!!
 !!  To align the structures for minpermdist we use the orientation in XA
 !!  and translate the B coordinates to the centre of coordinates of RA.
-!!  
+!!
 !   IF (.NOT.PRESERVET) THEN
 !      DO J1=1,NATOMS
 !         RB(3*(J1-1)+1)=XB(3*(J1-1)+1)-CMXB+CMXA+XSHIFT
@@ -162,12 +194,12 @@ ENDDO
 !      ENDDO
 !   ENDIF
 !   RETURN
-!ENDIF 
+!ENDIF
 
 
 XSHIFT=0.0D0; YSHIFT=0.0D0; ZSHIFT=0.0D0
 NCIT=0
-IF (BULKT) THEN 
+IF (BULKT) THEN
 ! 1  NCIT=NCIT+1
 !    IF (NCIT.GT.1000) THEN
 !       PRINT '(A)','inertia> WARNING - iterative calculation of centre of mass shift did not converge'
@@ -196,12 +228,23 @@ IF (BULKT) THEN
 ! Actually, the iterative solution seems to be worse than simply putting the centre of mass
 ! at the origin.
 !
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!mg542!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+   DO J1=1,NSIZE
+      XSHIFT = XSHIFT + XA(3*(J1-1)+1)-XB(3*(J1-1)+1)
+      YSHIFT = YSHIFT + XA(3*(J1-1)+2)-XB(3*(J1-1)+2)
+      ZSHIFT = ZSHIFT + XA(3*(J1-1)+3)-XB(3*(J1-1)+3)
+   ENDDO
+   XSHIFT = XSHIFT/NSIZE; YSHIFT = YSHIFT/NSIZE; ZSHIFT = ZSHIFT/NSIZE
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!mg542!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
    DIST=0.0D0
    DO J1=1,NSIZE
       DIST=DIST + (XA(3*(J1-1)+1)-XB(3*(J1-1)+1)-XSHIFT - BOXLX*NINT((XA(3*(J1-1)+1)-XB(3*(J1-1)+1)-XSHIFT)/BOXLX))**2 &
    &            + (XA(3*(J1-1)+2)-XB(3*(J1-1)+2)-YSHIFT - BOXLY*NINT((XA(3*(J1-1)+2)-XB(3*(J1-1)+2)-YSHIFT)/BOXLY))**2 &
    &            + (XA(3*(J1-1)+3)-XB(3*(J1-1)+3)-ZSHIFT - BOXLZ*NINT((XA(3*(J1-1)+3)-XB(3*(J1-1)+3)-ZSHIFT)/BOXLZ))**2
    ENDDO
+
    DIST=SQRT(DIST)
    RMAT(1:3,1:3)=0.0D0 ! rotation matrix is the identity
    RMAT(1,1)=1.0D0; RMAT(2,2)=1.0D0; RMAT(3,3)=1.0D0
@@ -210,7 +253,7 @@ ELSE
 !  The formula below is not invariant to overall translation because XP, YP, ZP
 !  involve a sum of coordinates! We need to have XA and XB coordinate centres both
 !  at the origin!!
-!  
+!
    QMAT(1:4,1:4)=0.0D0
 !  PRINT *,'XA:'
 !  PRINT '(6G20.10)',XA(1:3*NATOMS)
@@ -274,7 +317,7 @@ ENDIF
 
 !
 !  Needs some thought for the angle/axis rigid body formulation.
-! 
+!
 
 IF (.NOT.PRESERVET) THEN
    IF (ZUSE(1:1).EQ.'W') THEN
@@ -294,21 +337,21 @@ IF (.NOT.PRESERVET) THEN
    ELSEIF (RIGIDBODY) THEN
       WRITE(MYUNIT,'(A)') 'newmindist> back transformation not programmed yet for rigid bodies'
    ENDIF
-!  
+!
 !  Translate the RB coordinates to the centre of coordinates of RA.
-!  
-   DO J1=1,NATOMS
-      RB(3*(J1-1)+1)=RB(3*(J1-1)+1)-CMXB+CMXA+XSHIFT
-      RB(3*(J1-1)+2)=RB(3*(J1-1)+2)-CMYB+CMYA+YSHIFT
-      RB(3*(J1-1)+3)=RB(3*(J1-1)+3)-CMZB+CMZA+ZSHIFT
-   ENDDO
-   IF (.NOT.BULKT) THEN
+!
+
+
+      DO J1=1,NATOMS
+         RB(3*(J1-1)+1)=RB(3*(J1-1)+1)-CMXB+CMXA+XSHIFT
+         RB(3*(J1-1)+2)=RB(3*(J1-1)+2)-CMYB+CMYA+YSHIFT
+         RB(3*(J1-1)+3)=RB(3*(J1-1)+3)-CMZB+CMZA+ZSHIFT
+      ENDDO
       IF (STOCKT) THEN
          CALL NEWROTGEOMSTOCK(NATOMS,RB,RMAT,CMXA,CMYA,CMZA)
       ELSE
          CALL NEWROTGEOM(NSIZE,RB,RMAT,CMXA,CMYA,CMZA)
       ENDIF
-   ENDIF
 ENDIF
 ! WRITE(MYUNIT,'(A,6G20.10)') 'CMA,CMB=',CMXA,CMYA,CMZA,CMXB,CMYB,CMZB
 
