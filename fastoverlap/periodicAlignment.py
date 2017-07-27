@@ -13,7 +13,7 @@ from scipy import median
 from utils import find_best_permutation, findMax, _next_fast_len, findPeaks
 
 import f90
-if f90.have_fortran:
+if f90.have_fastbulk:
     fastbulk = f90.fastbulk
 
 class BasePeriodicAlignment(object):

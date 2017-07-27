@@ -43,7 +43,7 @@ if __name__ == "__main__":
     print 'RMSD = {:0.4f}'.format(fastRMS)
     
     print 'Performing fortran fastoverlap alignment'
-    dist, X1, X2, perm, disp = alignf(pos1, pos2)
+    dist, X1, X2, perm = alignf(pos1, pos2)
     fastRMS = dist*natoms**-0.5
     print 'RMSD = {:0.4f}'.format(fastRMS)
 

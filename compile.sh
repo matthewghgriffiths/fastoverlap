@@ -1,4 +1,5 @@
 
+mkdir -p build
 cd build
 gfortran -c -fPIC ../fastoverlap/f90/kdtree2.f90
 ar crs libkdtree.a kdtree2.o

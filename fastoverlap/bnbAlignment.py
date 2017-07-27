@@ -17,7 +17,7 @@ from hungarian import lap
 from utils import angle_axis2mat, mat2angle_axis, PriorityQueueHeap
 
 import f90
-if f90.have_fortran:
+if f90.have_libbnb:
     from f90 import libbnb
 
 class BranchandBoundMaster(object):

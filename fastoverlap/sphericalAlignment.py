@@ -23,7 +23,7 @@ findMax, findPeaks, findrotation, eval_grad_jacobi, calcThetaPhiR
 from soft import SOFT
 
 import f90
-if f90.have_fortran:
+if f90.have_fastclusters:
     fastclusters = f90.fastclusters
 
 class BaseSphericalAlignment(object):
