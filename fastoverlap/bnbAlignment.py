@@ -271,7 +271,7 @@ class BranchNodeCluster(BranchNode):
 
 class BranchnBoundAlignment(object):
 
-    def __init__(self,invert=True,boxSize=None):
+    def __init__(self,invert=True,boxSize=None,perm=None):
         self.invert = invert
         self.libbnb = libbnb
         self.gopermdist = libbnb.gopermdist
@@ -285,6 +285,8 @@ class BranchnBoundAlignment(object):
             self.bulk = True
             self.boxvec = np.array(boxSize, dtype=float)
             self.gopermdist.setbulk(invert)
+        if perm is not None:
+            self.setPerm(perm)
         self.Natoms = None
 
     def setPerm(self, perm):
