@@ -1,16 +1,16 @@
 !    FASTOVERLAP
 !    Copyright (C) 2017  Matthew Griffiths
-!    
+!
 !    This program is free software; you can redistribute it and/or modify
 !    it under the terms of the GNU General Public License as published by
 !    the Free Software Foundation; either version 2 of the License, or
 !    (at your option) any later version.
-!    
+!
 !    This program is distributed in the hope that it will be useful,
 !    but WITHOUT ANY WARRANTY; without even the implied warranty of
 !    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 !    GNU General Public License for more details.
-!    
+!
 !    You should have received a copy of the GNU General Public License along
 !    with this program; if not, write to the Free Software Foundation, Inc.,
 !    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
@@ -40,7 +40,7 @@
 MODULE FASTOVERLAPUTILS
 
 !***********************************************************************
-! This module contains some subroutines that are useful for FASTOVERLAP 
+! This module contains some subroutines that are useful for FASTOVERLAP
 ! alignment for both periodic and isolated structures
 !***********************************************************************
 ! Subroutines:
@@ -162,62 +162,6 @@ NSETS = 0
 
 END SUBROUTINE SETPERM
 
-! SUBROUTINE FINDBESTPERMUTATION(NATOMS,COORDSB,COORDSA,BOXLX,BOXLY,BOXLZ,BULKT,SAVEPERM,LDISTANCE,DIST2,WORSTRAD)
-
-! ! Find best permutational alignment of structures COORDSB with COORDSA given
-! ! LDISTANCE returns the calculated
-! ! distance^2 between the structures
-
-! ! Code copied under GNU GPL licence from minpermdist.f90 from GMIN 
-! ! Copyright (C) 1999-2008 David J. Wales
-
-! IMPLICIT NONE
-
-! INTEGER, INTENT(IN) :: NATOMS
-! DOUBLE PRECISION, INTENT(IN) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS), BOXLX,BOXLY,BOXLZ
-! LOGICAL, INTENT(IN) :: BULKT
-! INTEGER, INTENT(OUT) :: SAVEPERM(NATOMS)
-! DOUBLE PRECISION, INTENT(OUT) :: LDISTANCE, DIST2, WORSTRAD
-
-! DOUBLE PRECISION CURRDIST
-! INTEGER NDUMMY, J, J1, J2, J3, IND1, IND2, PATOMS
-
-! NDUMMY=1
-! DO J1=1,NATOMS
-    ! NEWPERM(J1)=J1
-! ENDDO
-
-! CURRDIST = 0.D0
-! DO J1=1,NPERMGROUP
-    ! PATOMS=INT(NPERMSIZE(J1),4)
-    ! DO J2=1,PATOMS
-        ! IND2 = NEWPERM(PERMGROUP(NDUMMY+J2-1))
-        ! PDUMMYA(3*J2-2:3*J2)=COORDSA(3*IND2-2:3*IND2)
-        ! PDUMMYB(3*J2-2:3*J2)=COORDSB(3*IND2-2:3*IND2)
-    ! ENDDO
-    ! CALL MINPERM(PATOMS,PDUMMYB,PDUMMYA,BOXLX,BOXLY,BOXLZ,BULKT,LPERM,LDISTANCE,DIST2,WORSTRAD)
-    ! CURRDIST = CURRDIST + LDISTANCE    
-    ! SAVEPERM(1:NATOMS)=NEWPERM(1:NATOMS)
-    ! DO J2=1,PATOMS
-        ! SAVEPERM(PERMGROUP(NDUMMY+J2-1))=NEWPERM(PERMGROUP(NDUMMY+LPERM(J2)-1))
-    ! ENDDO
-
-    ! IF (NSETS(J1).GT.0) THEN
-        ! DO J2=1,PATOMS
-            ! DO J3=1,NSETS(J1)
-                ! SAVEPERM(SETS(PERMGROUP(NDUMMY+J2-1),J3))=SETS(NEWPERM(PERMGROUP(NDUMMY+LPERM(J2)-1)),J3)
-            ! ENDDO
-        ! ENDDO
-    ! ENDIF
-    ! NDUMMY=NDUMMY+NPERMSIZE(J1)
-    ! NEWPERM(1:NATOMS)=SAVEPERM(1:NATOMS)
-! ENDDO
-
-! LDISTANCE = CURRDIST
-! DIST2 = SQRT(LDISTANCE)
-
-! END SUBROUTINE FINDBESTPERMUTATION
-
 SUBROUTINE SETINDEXES(NEWSHAPE)
 
 ! Helper routine to allocate memory to appropriate arrays needed to perform
@@ -228,7 +172,7 @@ IMPLICIT NONE
 INTEGER, INTENT(IN) :: NEWSHAPE(3)
 
 IF (.NOT.ALL(FSHAPE.EQ.NEWSHAPE)) THEN
-    FSHAPE = NEWSHAPE    
+    FSHAPE = NEWSHAPE
     IF(ALLOCATED(FSPACE)) THEN
         DEALLOCATE(FSPACE)
     ENDIF
@@ -238,10 +182,10 @@ IF (.NOT.ALL(FSHAPE.EQ.NEWSHAPE)) THEN
     IF(ALLOCATED(FJAC)) THEN
         DEALLOCATE(FJAC)
     ENDIF
-    
+
     ALLOCATE( FSPACE( FSHAPE(1),FSHAPE(2),FSHAPE(3) ) )
     FSIZE = SIZE(FSPACE)
-    
+
     ALLOCATE(FVEC(FSIZE))
     ALLOCATE(FJAC(11,FSIZE))
 ENDIF
@@ -317,7 +261,7 @@ END SUBROUTINE GAUSSIAN
 
 SUBROUTINE FCN(M,N,X,FVEC,FJAC,LDFJAC,IFLAG)
 
-! 
+!
 ! subroutine passed to lmder1 to perform least squares regression, minimizing
 ! SUM((FOUT - FSPACE)**2)
 ! where  FOUT(IX, IY, IZ) = A * Exp(-(I-I0)^T SIGMA (I-I0))
@@ -395,7 +339,7 @@ SUBROUTINE FIT(X, NEWFSPACE, NX, NY, NZ, INFO, TOL)
 ! A exp (- (I-I0)T Sigma (I-I0) ) + mean
 ! Where I is the 3-D vector of the indexes
 ! To the 3 dimensional array specified by FSPACE
-! This uses the Levenberg-Marquardt method. 
+! This uses the Levenberg-Marquardt method.
 ! Usage:
 ! CALL FIT(X0, FSPACE, INFO, TOL(optional))
 ! X0 = (\A, mean, SIGMA(1,1), SIGMA(2,2), SIGMA(3,3), SIGMA(1,2),SIGMA(2,3),SIGMA(1,3), I0(1), I0(2), I0(3) \)
@@ -593,7 +537,7 @@ END SUBROUTINE FINDPEAKS
 !***********************************************************************
 ! FFT subroutines
 !***********************************************************************
-    
+
 SUBROUTINE FFT3D(NX, NY, NZ, IN, OUT)
 ! calculates forward FFT in 3D
 IMPLICIT NONE
@@ -754,7 +698,7 @@ IMPLICIT NONE
 INTEGER, INTENT(IN) :: L
 DOUBLE PRECISION, INTENT(IN) :: Z
 
-RLEGENDREL0 = - (2.D0*L+1) * (1-Z**2)**0.5 
+RLEGENDREL0 = - (2.D0*L+1) * (1-Z**2)**0.5
 
 END FUNCTION RLEGENDREL0
 
@@ -796,8 +740,8 @@ function envj ( n, x )
 !
 !  Licensing:
 !
-!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However, 
-!    they give permission to incorporate this routine into a user program 
+!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However,
+!    they give permission to incorporate this routine into a user program
 !    provided that the copyright is acknowledged.
 !
 !  Modified:
@@ -864,14 +808,14 @@ function msta1 ( x, mp )
 !
 !  Discussion:
 !
-!    This procedure determines the starting point for backward  
-!    recurrence such that the magnitude of    
+!    This procedure determines the starting point for backward
+!    recurrence such that the magnitude of
 !    Jn(x) at that point is about 10^(-MP).
 !
 !  Licensing:
 !
-!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However, 
-!    they give permission to incorporate this routine into a user program 
+!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However,
+!    they give permission to incorporate this routine into a user program
 !    provided that the copyright is acknowledged.
 !
 !  Modified:
@@ -894,7 +838,7 @@ function msta1 ( x, mp )
 !
 !    Input, real ( kind = 8 ) X, the argument.
 !
-!    Input, integer ( kind = 4 ) MP, the negative logarithm of the 
+!    Input, integer ( kind = 4 ) MP, the negative logarithm of the
 !    desired magnitude.
 !
 !    Output, integer ( kind = 4 ) MSTA1, the starting point.
@@ -919,8 +863,8 @@ function msta1 ( x, mp )
   f0 = envj ( n0, a0 ) - mp
   n1 = n0 + 5
   f1 = envj ( n1, a0 ) - mp
-  do it = 1, 20       
-    nn = n1 - ( n1 - n0 ) / ( 1.0D+00 - f0 / f1 )                  
+  do it = 1, 20
+    nn = n1 - ( n1 - n0 ) / ( 1.0D+00 - f0 / f1 )
     f = envj ( nn, a0 ) - mp
     if ( abs ( nn - n1 ) < 1 ) then
       exit
@@ -951,8 +895,8 @@ function msta2 ( x, n, mp )
 !
 !  Licensing:
 !
-!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However, 
-!    they give permission to incorporate this routine into a user program 
+!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However,
+!    they give permission to incorporate this routine into a user program
 !    provided that the copyright is acknowledged.
 !
 !  Modified:
@@ -1048,8 +992,8 @@ subroutine sphi ( n, x, nm, si)
 !
 !  Licensing:
 !
-!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However, 
-!    they give permission to incorporate this routine into a user program 
+!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However,
+!    they give permission to incorporate this routine into a user program
 !    provided that the copyright is acknowledged.
 !
 !  Modified:
@@ -1147,8 +1091,8 @@ subroutine HYP1F1 ( ain, bin, xin, hg )
 !
 !  Licensing:
 !
-!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However, 
-!    they give permission to incorporate this routine into a user program 
+!    This routine is copyrighted by Shanjie Zhang and Jianming Jin.  However,
+!    they give permission to incorporate this routine into a user program
 !    provided that the copyright is acknowledged.
 !
 !  Modified:
@@ -1343,9 +1287,9 @@ subroutine gamma ( x, ga )
 !
 !  Licensing:
 !
-!    The original FORTRAN77 version of this routine is copyrighted by 
-!    Shanjie Zhang and Jianming Jin.  However, they give permission to 
-!    incorporate this routine into a user program that the copyright 
+!    The original FORTRAN77 version of this routine is copyrighted by
+!    Shanjie Zhang and Jianming Jin.  However, they give permission to
+!    incorporate this routine into a user program that the copyright
 !    is acknowledged.
 !
 !  Modified:
@@ -1388,15 +1332,15 @@ subroutine gamma ( x, ga )
     0.72189432466630D-02, &
    -0.11651675918591D-02, &
    -0.2152416741149D-03, &
-    0.1280502823882D-03, & 
+    0.1280502823882D-03, &
    -0.201348547807D-04, &
    -0.12504934821D-05, &
     0.11330272320D-05, &
-   -0.2056338417D-06, & 
+   -0.2056338417D-06, &
     0.61160950D-08, &
     0.50020075D-08, &
    -0.11812746D-08, &
-    0.1043427D-09, & 
+    0.1043427D-09, &
     0.77823D-11, &
    -0.36968D-11, &
     0.51D-12, &
@@ -1468,7 +1412,7 @@ end
 !    User Guide for MINPACK-1,
 !    Technical Report ANL-80-74,
 !    Argonne National Laboratory, 1980.
-    
+
 !    Jorge More, Danny Sorenson, Burton Garbow, Kenneth Hillstrom,
 !    The MINPACK Project,
 !    in Sources and Development of Mathematical Software,
@@ -1535,7 +1479,7 @@ subroutine lmder ( fcn, m, n, x, fvec, fjac, ldfjac, ftol, xtol, gtol, maxfev, &
 !
 !    Input, integer ( kind = 4 ) M, is the number of functions.
 !
-!    Input, integer ( kind = 4 ) N, is the number of variables.  
+!    Input, integer ( kind = 4 ) N, is the number of variables.
 !    N must not exceed M.
 !
 !    Input/output, real ( kind = 8 ) X(N).  On input, X must contain an initial
@@ -2064,7 +2008,7 @@ subroutine lmder1 ( fcn, m, n, x, fvec, fjac, ldfjac, tol, info )
 !
 !    Input, integer ( kind = 4 ) M, the number of functions.
 !
-!    Input, integer ( kind = 4 ) N, is the number of variables.  
+!    Input, integer ( kind = 4 ) N, is the number of variables.
 !    N must not exceed M.
 !
 !    Input/output, real ( kind = 8 ) X(N).  On input, X must contain an initial
@@ -2424,8 +2368,8 @@ subroutine lmpar ( n, r, ldr, ipvt, diag, qtb, delta, par, x, sdiag )
 !    Input, integer ( kind = 4 ) LDR, the leading dimension of R.  LDR must be
 !    no less than N.
 !
-!    Input, integer ( kind = 4 ) IPVT(N), defines the permutation matrix P 
-!    such that A*P = Q*R.  Column J of P is column IPVT(J) of the 
+!    Input, integer ( kind = 4 ) IPVT(N), defines the permutation matrix P
+!    such that A*P = Q*R.  Column J of P is column IPVT(J) of the
 !    identity matrix.
 !
 !    Input, real ( kind = 8 ) DIAG(N), the diagonal elements of the matrix D.
@@ -2578,7 +2522,7 @@ subroutine lmpar ( n, r, ldr, ipvt, diag, qtb, delta, par, x, sdiag )
 !  Beginning of an iteration.
 !
   do
- 
+
     iter = iter + 1
 !
 !  Evaluate the function at the current value of PAR.
@@ -2724,7 +2668,7 @@ subroutine qrsolv ( n, r, ldr, ipvt, diag, qtb, x, sdiag )
 !    Input, integer ( kind = 4 ) LDR, the leading dimension of R, which must be
 !    at least N.
 !
-!    Input, integer ( kind = 4 ) IPVT(N), defines the permutation matrix P such 
+!    Input, integer ( kind = 4 ) IPVT(N), defines the permutation matrix P such
 !    that A*P = Q*R.  Column J of P is column IPVT(J) of the identity matrix.
 !
 !    Input, real ( kind = 8 ) DIAG(N), the diagonal elements of the matrix D.
@@ -2930,11 +2874,11 @@ subroutine qrfac ( m, n, a, lda, pivot, ipvt, lipvt, rdiag, acnorm )
 !
 !    Input, logical PIVOT, is TRUE if column pivoting is to be carried out.
 !
-!    Output, integer ( kind = 4 ) IPVT(LIPVT), defines the permutation matrix P 
-!    such that A*P = Q*R.  Column J of P is column IPVT(J) of the identity 
+!    Output, integer ( kind = 4 ) IPVT(LIPVT), defines the permutation matrix P
+!    such that A*P = Q*R.  Column J of P is column IPVT(J) of the identity
 !    matrix.  If PIVOT is false, IPVT is not referenced.
 !
-!    Input, integer ( kind = 4 ) LIPVT, the dimension of IPVT, which should 
+!    Input, integer ( kind = 4 ) LIPVT, the dimension of IPVT, which should
 !    be N if pivoting is used.
 !
 !    Output, real ( kind = 8 ) RDIAG(N), contains the diagonal elements of R.

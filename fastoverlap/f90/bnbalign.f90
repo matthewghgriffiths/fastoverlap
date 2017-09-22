@@ -1,17 +1,81 @@
+!    Go-PERMDIST
+!    Copyright (C) 2017  Matthew Griffiths
+!
+!    This program is free software; you can redistribute it and/or modify
+!    it under the terms of the GNU General Public License as published by
+!    the Free Software Foundation; either version 2 of the License, or
+!    (at your option) any later version.
+!
+!    This program is distributed in the hope that it will be useful,
+!    but WITHOUT ANY WARRANTY; without even the implied warranty of
+!    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+!    GNU General Public License for more details.
+!
+!    You should have received a copy of the GNU General Public License along
+!    with this program; if not, write to the Free Software Foundation, Inc.,
+!    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
+!***********************************************************************
+! GOPERMDIST MODULE
+!***********************************************************************
+
+! Subroutines:
+!
+!    BNB_ALIGN(COORDSB,COORDSA,NATOMS,DEBUGT,NBOXLX,NBOXLY,NBOXLZ,NBULKT,DISTANCE,DIST2,RMATBEST,NSTEPS)
+
+!    RUN(NITER, FORCE, IPRINT, BESTUPPER)
+!    RUN(NITER, FORCE, IPRINT, BESTUPPER)
+
+!    ADDNODE(VECTOR,WIDTH,IDNUM,BESTUPPER,FORCE,LOWERBOUND,UPPERBOUND)
+
+!    BRANCH(VECTOR,WIDTH,IDNUM,BESTUPPER,FORCE)
+
+!    CALCBOUNDS(LOWERBOUND,UPPERBOUND,VECTOR,WIDTH,IDNUM,BESTUPPER,FORCE)
+
+!    FINDPERMVAL(PERM, NATOMS, MATVALS, DINVIDX, MAXNEI, NPERMGROUP, BEST)
+
+!    INVPAIRDISTIDX(DUMMYIDX, DINVIDX, NATOMS, MAXNEI, NPERMGROUP)
+
+!    PERMNEARESTNEIGHBOURDISTS(NDISTS,NIDX,NATOMS,MAXNEI,NEARI,NEARD,NPERMGROUP)
+
+!    NEARESTNEIGHBOURDISTS(CC, KK, N, MAXNEI, IDX, DISTS)
+
+!    QUEUEPUT(LOWERBOUND, UPPERBOUND, VECTOR, WIDTH, NITER, IDNUM)
+
+!    INITIALISE(COORDSB,COORDSA,NATOMS,NBOXLX,NBOXLY,NBOXLZ,NBULKT)
+
+!    SETNATOMS(NEWNATOMS)
+
+!    SETPERM(NEWNATOMS, NEWPERMGROUP, NEWNPERMSIZE)
+
+!    TRANSFORM(NEWCOORDSA, NATOMS, VECTOR, IDNUM)
+
+!    ANGLEAXIS2MAT(VECTOR,RMAT)
+
+!    MAT2ANGLEAXIS(VECTOR, RMAT)
+
+!    REALLOCATEARRAYS(NATOMS, NUMSTRUCTS, BULKT)
+
+!    SETCLUSTER(INVERT)
+
+!    SETBULK(INVERT)
+
+! Functions:
+!    BOUNDROTDISTANCE(D2,COSW,SINW,RA,RB)
+
+!    QUEUELEN()
+
+!***********************************************************************
 
 INCLUDE "commons.f90"
+INCLUDE "alignutils.f90"
 
 MODULE GOPERMDIST
 
-! SAVECOORDSA(3*NATOMS,NSTRUCTS) stores the centred candidate structures
-! SAVECOORDSB(3*NATOMS) stores the centred target structure
-
-! PERMCOORDSB(3,NATOMS,NPERMGROUP) stores the structures for the k-d tree
-
-
-USE COMMONS, ONLY : PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM, MYUNIT, &
- & NSETS, SETS, OHCELLT, PERMINVOPT, PERMDIST, PERMOPT, BOXLX, BOXLY, BOXLZ
+!USE COMMONS, ONLY : PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM, MYUNIT, &
+! & NSETS, SETS, OHCELLT, PERMINVOPT, PERMDIST, PERMOPT, BOXLX, BOXLY, BOXLZ
+USE ALIGNUTILS, ONLY : PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM, MYUNIT, &
+ & NSETS, SETS, DEBUG, OHCELLT, PERMINVOPT, NOINVERSION, BOXLX, BOXLY, BOXLZ
 USE PRIORITYQUEUE, ONLY: QUEUE
 
 IMPLICIT NONE
@@ -22,13 +86,13 @@ DOUBLE PRECISION, PARAMETER :: PSCALE = 1.D6 ! Scale for linear assignment probl
 DOUBLE PRECISION, PARAMETER :: PI = 3.141592653589793D0
 ! Absolute Tolerance, Relative Tolerance, Relative Tolerance for MINPERMDIST quench
 DOUBLE PRECISION, SAVE :: ATOL=1D-8, RTOL=1D-1, MPRTOL=1.D-1
-LOGICAL, SAVE :: DEBUG = .TRUE.
+!LOGICAL, SAVE :: DEBUG = .TRUE.
 
 
 DOUBLE PRECISION, SAVE :: LVECS(3,0:8), FVECS(4,6)
 
 DOUBLE PRECISION, SAVE :: CMAX,CMAY,CMAZ,CMBX,CMBY,CMBZ
-DOUBLE PRECISION, SAVE :: DUMMYRMAT(3,3), TRMAT(3,3)
+DOUBLE PRECISION, SAVE :: DUMMYRMAT(3,3), TRMAT(3,3), DUMMYDISP(3)
 LOGICAL, SAVE :: PERMINVOPTSAVE, NOINVERSIONSAVE
 
 ! Module saves periodic conditions variables
@@ -38,9 +102,9 @@ DOUBLE PRECISION, SAVE :: BOXVEC(3)
 
 ! Arrays to store target and candidate structures and best found structures
 DOUBLE PRECISION, SAVE, ALLOCATABLE  :: SAVECOORDSA(:,:),PERMCOORDSB(:,:,:), &
- & SAVECOORDSB(:), BESTCOORDSA(:,:), BESTRMAT(:,:,:)
+ & SAVECOORDSB(:), BESTCOORDSA(:,:), BESTRMAT(:,:,:), BESTDISP(:,:)
 DOUBLE PRECISION, SAVE, ALLOCATABLE  :: SAVERA(:,:), SAVERB(:)
-INTEGER, SAVE, ALLOCATABLE :: BESTITERS(:)
+INTEGER, SAVE, ALLOCATABLE :: BESTITERS(:), BESTPERMS(:,:)
 INTEGER, SAVE :: BESTID, BESTITER
 
 
@@ -48,21 +112,27 @@ INTEGER, SAVE :: BESTID, BESTITER
 DOUBLE PRECISION :: BRANCHVECS(3,8)
 DOUBLE PRECISION, SAVE, ALLOCATABLE  :: DUMMYCOORDSA(:,:), PDUMMYND(:)
 ! Arrays of distances and nearest neighbour distances
+
 DOUBLE PRECISION, SAVE, ALLOCATABLE :: DUMMYDISTS(:,:), DUMMYNEARDISTS(:)
+!DOUBLE PRECISION, SAVE, ALLOCATABLE :: DUMMYNEARDISTS(:)
+
 DOUBLE PRECISION, SAVE, ALLOCATABLE :: DUMMYDISPS(:,:,:)
 ! Arrays of bounded distances and nearest neighbour distances
 DOUBLE PRECISION, SAVE, ALLOCATABLE :: DUMMYLDISTS(:,:), DUMMYNEARLDISTS(:), &
  & DUMMYLDISTS2(:,:), DUMMYDOTDISP(:,:,:)
 
 INTEGER, SAVE, ALLOCATABLE :: DUMMYIDX(:,:), DINVIDX(:,:), DUMMYNEARIDX(:)
+!INTEGER, SAVE, ALLOCATABLE :: DINVIDX(:,:), DUMMYNEARIDX(:)
+
 INTEGER, SAVE, ALLOCATABLE :: INVPERMGROUP(:)
 
 ! Used when solving assignment problem
 DOUBLE PRECISION, SAVE, ALLOCATABLE :: PDUMMYA(:), PDUMMYB(:), DUMMYA(:), &
     & DUMMYB(:), XBESTA(:), XBESTASAVE(:)
-INTEGER, SAVE, ALLOCATABLE :: NEWPERM(:), LPERM(:)
+!DOUBLE PRECISION, SAVE, ALLOCATABLE :: XBESTA(:), XBESTASAVE(:)
 
-!TYPE(KDTREE2PTR), ALLOCATABLE :: KDTREES(:)
+INTEGER, SAVE, ALLOCATABLE :: NEWPERM(:), LPERM(:), PERMBEST(:)
+
 TYPE(QUEUE) :: Q
 
 DATA LVECS / &
@@ -84,9 +154,8 @@ DATA FVECS / &
  & -1.0D0, -1.0D0,  1.0D0,  1.0D0, &
  & -1.0D0,  1.0D0, -1.0D0,  1.0D0 /
 
-! Private so that module works with f2py and static linking to kdtree2.f90 and
-! priorityqueue.f90
-PRIVATE :: Q!, KDTREES
+! Private so that module works with f2py and static linking to priorityqueue.f90
+PRIVATE :: Q
 
 CONTAINS
 
@@ -144,73 +213,15 @@ COORDSA(:) = BESTCOORDSA(:,BESTID)
 DISTANCE = BESTUPPER
 DIST2 = DISTANCE**2
 
-IF(.NOT.NBULKT) THEN
+IF (NBULKT) THEN
+	DISPBEST = BESTDISP(:,BESTID)
+ELSE
     RMATBEST = BESTRMAT(:,:,BESTID)
 ENDIF
 
+BESTPERM = BESTPERMS(:,BESTID)
+
 END SUBROUTINE BNB_ALIGN
-
-SUBROUTINE RUNGROUP(NITER, FORCE, IPRINT, BESTUPPER, NSTRUCTS, UPDATE)
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: NITER, IPRINT, NSTRUCTS, UPDATE
-LOGICAL, INTENT(IN) :: FORCE
-DOUBLE PRECISION, INTENT(INOUT) :: BESTUPPER(NSTRUCTS)
-
-
-DOUBLE PRECISION LOWERBOUND, UPPERBOUND, VECTOR(3), WIDTH
-INTEGER I,IDNUM,NODEITER,NSUCCESS
-
-DO I=1,NITER
-
-    CALL QUEUEGET(LOWERBOUND, UPPERBOUND, VECTOR, WIDTH, NODEITER, IDNUM)
-
-    CALL BRANCH(VECTOR,WIDTH,IDNUM,BESTUPPER(IDNUM),FORCE)
-
-    IF(DEBUG.AND.(IPRINT.GT.0).AND.(MOD(I,IPRINT).EQ.0)) THEN
-        WRITE(MYUNIT,'(A)') &
-         & "gopermdist> -----------------STATUS UPDATE----------------"
-        WRITE(MYUNIT,'(A,I16)') &
-         & "gopermdist> iteration  number           = ", I
-!        WRITE(MYUNIT,'(A,G20.6)') &
-!         & "gopermdist> lowest upper bound so far   = ", BESTUPPER
-        WRITE(MYUNIT,'(A,G20.6)') &
-         & "gopermdist> highest lower bound so far  = ", LOWERBOUND
-        WRITE(MYUNIT,'(A,I16)') &
-         & "gopermdist> total calculations so far   = ", NCALC
-        WRITE(MYUNIT,'(A,I16)') &
-         & "gopermdist> queue length                = ", QUEUELEN()
-        WRITE(MYUNIT,'(A)') &
-         & "gopermdist> ----------------------------------------------"
-    ENDIF
-
-
-    IF(QUEUELEN().LE.0) THEN
-        IF(DEBUG) WRITE(MYUNIT,'(A)') &
-             & "gopermdist> priority queue empty, stopping"
-    END IF
-
-!    IF((QUEUELEN().LE.0).OR.((LOWERBOUND).GT.(BESTUPPER - RTOL*BESTUPPER - ATOL))) THEN
-!        IF(DEBUG) THEN
-!            WRITE(MYUNIT,'(A)') &
-!             & "gopermdist> -------------------SUCCESS--------------------"
-!!            WRITE(MYUNIT,'(A,G20.6)') &
-!!             & "gopermdist> converged on minimum RMSD   = ", BESTUPPER
-!            WRITE(MYUNIT,'(A,I16)') &
-!             & "gopermdist> total calculations          = ", NCALC
-!            WRITE(MYUNIT,'(A,I16)') &
-!             & "gopermdist> found best on iteration     = ", BESTITER
-!            WRITE(MYUNIT,'(A,I16)') &
-!             & "gopermdist> best structure              = ", BESTID
-!            WRITE(MYUNIT,'(A)') &
-!             & "gopermdist> -------------------SUCCESS--------------------"
-!        END IF
-!        EXIT
-!    END IF
-
-END DO
-
-END SUBROUTINE RUNGROUP
 
 SUBROUTINE RUN(NITER, FORCE, IPRINT, BESTUPPER)
 IMPLICIT NONE
@@ -274,6 +285,8 @@ END SUBROUTINE
 
 SUBROUTINE ADDNODE(VECTOR,WIDTH,IDNUM,BESTUPPER,FORCE,LOWERBOUND,UPPERBOUND)
 
+USE ALIGNUTILS, ONLY : ITERATIVEALIGN
+
 IMPLICIT NONE
 DOUBLE PRECISION, INTENT(IN) :: VECTOR(3), WIDTH
 DOUBLE PRECISION, INTENT(INOUT) :: BESTUPPER
@@ -293,8 +306,10 @@ IF ((UPPERBOUND).LE.(BESTUPPER + MPRTOL*BESTUPPER + ATOL)) THEN
     PERMINVOPTSAVE = PERMINVOPT; OHCELLTSAVE = OHCELLT
     OHCELLT = .FALSE.; PERMINVOPT = .FALSE.
 
-    CALL MINPERMDIST(SAVECOORDSB,DUMMYA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,BULKT, &
- & .FALSE.,UPPERBOUND,DIST2,.FALSE.,DUMMYRMAT)
+!    CALL MINPERMDIST(SAVECOORDSB,DUMMYA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,BULKT, &
+! & .FALSE.,UPPERBOUND,DIST2,.FALSE.,DUMMYRMAT)
+    CALL ITERATIVEALIGN(SAVECOORDSB,DUMMYA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,BULKT, &
+    & DIST2,UPPERBOUND,DUMMYRMAT,DUMMYDISP,PERMBEST)
 
     ! Resetting keywords
     PERMINVOPT = PERMINVOPTSAVE; OHCELLT = OHCELLTSAVE
@@ -305,36 +320,28 @@ IF ((UPPERBOUND).LE.(BESTUPPER + MPRTOL*BESTUPPER + ATOL)) THEN
 END IF
 
 IF (UPPERBOUND.LT.BESTUPPER) THEN
-
     BESTUPPER = UPPERBOUND
 
     IF(DEBUG) WRITE(MYUNIT, "(A,G20.5)") &
  & "gopermdist> NEW lowest upper bound RMSD = ", UPPERBOUND
 
-!    ! Don't need to test for inversion isomers
-!    PERMINVOPTSAVE = PERMINVOPT; OHCELLTSAVE = OHCELLT
-!    OHCELLT = .FALSE.; PERMINVOPT = .FALSE.
-!
-!    CALL MINPERMDIST(SAVECOORDSB,DUMMYA,NATOMS,DEBUG,BOXLX,BOXLY,BOXLZ,BULKT, &
-! & .FALSE.,BESTUPPER,DIST2,.FALSE.,DUMMYRMAT)
-!
-!    ! Resetting keywords
-!    PERMINVOPT = PERMINVOPTSAVE; OHCELLT = OHCELLTSAVE
-!    NQUENCH = NQUENCH + 1
+    IF (.NOT.BULKT) THEN
+        BESTDISP(:,IDNUM) = DUMMYDISP
+    ELSE
+        BESTRMAT(:,:,IDNUM) = MATMUL(TRMAT,DUMMYRMAT)
+    END IF
 
-    IF (.NOT.BULKT) BESTRMAT(:,:,IDNUM) = MATMUL(TRMAT,DUMMYRMAT)
     BESTCOORDSA(:,IDNUM) = DUMMYA
+    BESTPERMS(:,IDNUM) = PERMBEST
     BESTID = IDNUM
     BESTITER = NCALC
     CALL QUEUEPUT(LOWERBOUND,UPPERBOUND,VECTOR,WIDTH,NCALC,IDNUM)
-
 ELSE IF( (LOWERBOUND ).LT.(BESTUPPER - RTOL*BESTUPPER - ATOL) ) THEN
     CALL QUEUEPUT(LOWERBOUND,UPPERBOUND,VECTOR,WIDTH,NCALC,IDNUM)
 END IF
 
-
-
 END SUBROUTINE ADDNODE
+
 
 SUBROUTINE BRANCH(VECTOR,WIDTH,IDNUM,BESTUPPER,FORCE)
 
@@ -359,6 +366,8 @@ END SUBROUTINE BRANCH
 
 SUBROUTINE CALCBOUNDS(LOWERBOUND,UPPERBOUND,VECTOR,WIDTH,IDNUM,BESTUPPER,FORCE)
 
+USE ALIGNUTILS, ONLY : PERMPAIRDISTS, FINDBESTPERM
+
 IMPLICIT NONE
 DOUBLE PRECISION, INTENT(IN) :: VECTOR(3), WIDTH, BESTUPPER
 INTEGER, INTENT(IN) :: IDNUM
@@ -370,7 +379,7 @@ DOUBLE PRECISION W,SINW,COSW,RA,RB,ESTLOWER,ESTUPPER,D,V,COSP
 INTEGER I,J,J1,M,K,K1,IND,NDUMMY,NPERM,INFO,IA,IB
 LOGICAL RECALC
 
-DOUBLE PRECISION PERMDIST
+!DOUBLE PRECISION PERMDIST
 
 IF(BULKT) THEN
     W = SQRT(3.D0) * WIDTH * 0.5D0
@@ -397,9 +406,9 @@ END IF
 CALL TRANSFORM(DUMMYA, NATOMS, VECTOR, IDNUM)
 
 ! Find distance matrix
-CALL PERMPAIRDISTS(SAVECOORDSB,DUMMYA,NATOMS,PMAXNEI,DUMMYDISTS,DUMMYIDX,NPERMGROUP)
 
-!write(*,*) (dummyidx)
+WRITE(MYUNIT, *), "calcbounrds", boxlx, boxly, boxlz
+CALL PERMPAIRDISTS(SAVECOORDSB,DUMMYA,NATOMS,PMAXNEI,DUMMYDISTS,DUMMYIDX,NPERMGROUP)
 
 ! Find bounded distanace matrix
 IF(BULKT) THEN
@@ -460,11 +469,6 @@ END IF
 ! Estimating Lower Bound by finding nearest neighbours
 IF(DEBUG.OR.(.NOT.(FORCE.OR.RECALC))) THEN
     IF(BULKT) THEN
-!        DO J1=1,NPERMGROUP
-!            NPERM=NPERMSIZE(J1)
-!            M = MIN(NPERM,PMAXNEI)
-!            DUMMYLDISTS(:NPERM*M,J1) = MAX(SQRT(DUMMYDISTS(:NPERM*M,J1)) - W,0.D0)**2
-!        ENDDO
 
         ! Find relative displacements
         DO J1=1,NPERMGROUP
@@ -526,8 +530,6 @@ IF(DEBUG.OR.(.NOT.(FORCE.OR.RECALC))) THEN
 END IF
 
 
-
-
 ! If estimate of upperbound is lower than best found upperbound we need to
 ! solve assignment problem to find bounds
 IF (FORCE.OR.RECALC) THEN
@@ -536,23 +538,9 @@ IF (FORCE.OR.RECALC) THEN
     ! matrix and total permutation
     CALL INVPAIRDISTIDX(DUMMYIDX, DINVIDX, NATOMS, PMAXNEI, NPERMGROUP)
 
-!    DINVIDX = -1
-!    DO J1=1,NPERMGROUP
-!        NPERM = NPERMSIZE(J1)
-!        M = MIN(NPERM,PMAXNEI)
-!        DO J=1,NPERM
-!            K=M*(J-1)
-!            K1 = NPERM*(J-1)
-!            DO I=1,M
-!                DINVIDX(K1+DUMMYIDX(K+I,J1),J1) = I
-!            END DO
-!        END DO
-!    END DO
-
     IF(BULKT) THEN
         DO J1=1,NPERMGROUP
             NPERM=NPERMSIZE(J1)
-!            M = MERGE(NPERM,PMAXNEI,NPERM.LT.PMAXNEI)
             M = MIN(NPERM,PMAXNEI)
             DUMMYLDISTS(:NPERM*M,J1) = MAX(SQRT(DUMMYDISTS(:NPERM*M,J1)) - W,0.D0)**2
         ENDDO
@@ -562,28 +550,6 @@ IF (FORCE.OR.RECALC) THEN
      & LOWERBOUND,NPERMGROUP, INFO)
 
     CALL FINDPERMVAL(NEWPERM,NATOMS,DUMMYLDISTS,DINVIDX,PMAXNEI,NPERMGROUP,LOWERBOUND)
-!    LOWERBOUND = 0.D0
-!    NDUMMY = 0
-!    DO J1=1,NPERMGROUP
-!        NPERM = NPERMSIZE(J1)
-!        M = MIN(NPERM,PMAXNEI)
-!        DO J=1,NPERM
-!!            K = M*(J-1)
-!!            K1 = NPERM*(J-1)
-!            IA = INVPERMGROUP(NEWPERM(PERMGROUP(J+NDUMMY)))-NDUMMY
-!            I = DINVIDX(NPERM*(J-1)+IA,J1)
-!            LOWERBOUND = LOWERBOUND + DUMMYLDISTS(M*(J-1)+I,J1)
-!        END DO
-!        NDUMMY = NDUMMY + NPERM
-!    END DO
-
-!    LOWERBOUND = 0.D0
-!    ! Perhaps there's a better way of calculating lowerbound from FINDBESTPERM?
-!    DO J=1,NATOMS
-!        I = NEWPERM(J)
-!        LOWERBOUND = (LOWERBOUND + MAX(SQRT(PERMDIST( &
-!         & SAVECOORDSB(3*J-2:3*J),DUMMYA(3*I-2:3*I),BOXVEC,BULKT))-W,0.D0)**2)
-!    END DO
 
     ! Check output of assignment problem
     IF(INFO.GT.0) THEN
@@ -601,28 +567,6 @@ IF (FORCE.OR.RECALC) THEN
          & UPPERBOUND,NPERMGROUP, INFO)
 
         CALL FINDPERMVAL(LPERM,NATOMS,DUMMYDISTS,DINVIDX,PMAXNEI,NPERMGROUP,UPPERBOUND)
-
-!        UPPERBOUND = 0.D0
-!        NDUMMY = 0
-!        DO J1=1,NPERMGROUP
-!            NPERM = NPERMSIZE(J1)
-!            M = MIN(NPERM,PMAXNEI)
-!            DO J=1,NPERM
-!!                K = M*(J-1)
-!!                K1 = NPERM*(J-1)
-!                IA = INVPERMGROUP(NEWPERM(PERMGROUP(J+NDUMMY)))-NDUMMY
-!                I = DINVIDX(NPERM*(J-1)+IA,J1)
-!                UPPERBOUND = UPPERBOUND + DUMMYDISTS(M*(J-1)+I,J1)
-!            END DO
-!            NDUMMY = NDUMMY + NPERM
-!        END DO
-
-!        UPPERBOUND = 0.D0
-!        DO J=1,NATOMS
-!            I = LPERM(J)
-!            UPPERBOUND = (UPPERBOUND + PERMDIST( &
-!         & SAVECOORDSB(3*J-2:3*J),DUMMYA(3*I-2:3*I),BOXVEC,BULKT))
-!        END DO
 
         ! Check output of assignment problem
         IF(INFO.GT.0) THEN
@@ -747,115 +691,6 @@ END DO
 
 END SUBROUTINE NEARESTNEIGHBOURDISTS
 
-SUBROUTINE FINDBESTPERM(NDISTS,NIDX,NATOMS,MAXNEI,PERM,DIST,NPERMGROUP,INFO)
-! DISTANCE RETURN INACCURATE
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: NATOMS,NPERMGROUP,MAXNEI,NIDX(MAXNEI*NATOMS,NPERMGROUP)
-DOUBLE PRECISION, INTENT(IN) :: NDISTS(MAXNEI*NATOMS,NPERMGROUP)
-
-DOUBLE PRECISION, INTENT(OUT) :: DIST
-INTEGER, INTENT(OUT) :: PERM(NATOMS), INFO
-
-! COULD SET THESE AS MODULE VARIABLES
-INTEGER*8 :: KK(NATOMS*MAXNEI), CC(NATOMS*MAXNEI)
-INTEGER*8 :: FIRST(NATOMS+1), X(NATOMS), Y(NATOMS)
-INTEGER*8 :: U(NATOMS), V(NATOMS), N8, SZ8, H
-INTEGER N,M,I,J,K,K1,I1,J1,NDUMMY
-
-DIST = 0.D0
-INFO=0
-
-NDUMMY=0
-
-DO J1=1,NPERMGROUP
-
-    N = NPERMSIZE(J1)
-    M = MAXNEI
-    IF(N.LE.MAXNEI) M=N
-    SZ8 = M*N
-    N8 = N
-
-    DO I=0,N
-        FIRST(I+1) = I*M +1
-    ENDDO
-    KK = -1
-    CC = HUGE(1)
-    DO J=1,N
-        K = FIRST(J)-1
-        DO I=1,M
-            KK(I+K) = NIDX(I+K,J1)
-            CC(I+K) = INT(NDISTS(I+K,J1)*PSCALE, 8)
-        ENDDO
-    ENDDO
-
-    CALL JOVOSAP(N8, SZ8, CC(:M*N), KK(:M*N), FIRST(:N+1), Y(:N), X(:N), U(:N), V(:N), H)
-    NLAP = NLAP + 1
-
-    DO I=1,N
-        IF (Y(I).GT.N) THEN
-            Y(I)=N
-            INFO = INFO + 1
-        END IF
-        IF (Y(I).LT.1) THEN
-            Y(I)=1
-            INFO = INFO + 1
-        END IF
-        PERM(PERMGROUP(NDUMMY+I)) = PERMGROUP(NDUMMY+Y(I))
-    ENDDO
-    DIST = DIST + H/PSCALE
-
-    ! untested!!
-    IF (NSETS(J1).GT.0) THEN
-        DO I=1,N
-            DO K=1,NSETS(J1)
-                PERM(SETS(PERMGROUP(NDUMMY+I),K))=SETS(PERM(PERMGROUP(NDUMMY+Y(I))),K)
-            ENDDO
-        ENDDO
-    ENDIF
-
-    NDUMMY = NDUMMY + NPERMSIZE(J1)
-ENDDO
-
-
-END SUBROUTINE FINDBESTPERM
-
-SUBROUTINE PERMPAIRDISTS(COORDSB,COORDSA,NATOMS,MAXNEI,NDISTS,NIDX,NPERMGROUP)
-
-! Uses module variables BOXLX, BOXLY, BOXLZ, BULKT when calculating periodic distances
-
-IMPLICIT NONE
-
-INTEGER, INTENT(IN) :: NATOMS, NPERMGROUP, MAXNEI
-DOUBLE PRECISION, INTENT(IN) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
-
-INTEGER, INTENT(OUT) :: NIDX(MAXNEI*NATOMS,NPERMGROUP)
-DOUBLE PRECISION, INTENT(OUT) :: NDISTS(MAXNEI*NATOMS,NPERMGROUP)
-
-INTEGER NDUMMY,J1,J2,NPERM
-
-NDUMMY = 0
-
-NIDX   = -1
-NDISTS = HUGE(1.D0)
-
-DO J1=1,NPERMGROUP
-    NPERM=NPERMSIZE(J1)
-    DO J2=1,NPERM
-        PDUMMYA(3*(J2-1)+1)=COORDSA(3*((PERMGROUP(NDUMMY+J2))-1)+1)
-        PDUMMYA(3*(J2-1)+2)=COORDSA(3*((PERMGROUP(NDUMMY+J2))-1)+2)
-        PDUMMYA(3*(J2-1)+3)=COORDSA(3*((PERMGROUP(NDUMMY+J2))-1)+3)
-        PDUMMYB(3*(J2-1)+1)=COORDSB(3*((PERMGROUP(NDUMMY+J2))-1)+1)
-        PDUMMYB(3*(J2-1)+2)=COORDSB(3*((PERMGROUP(NDUMMY+J2))-1)+2)
-        PDUMMYB(3*(J2-1)+3)=COORDSB(3*((PERMGROUP(NDUMMY+J2))-1)+3)
-    ENDDO
-    CALL PAIRDISTS(NPERM,PDUMMYB(1:3*NPERM),PDUMMYA(1:3*NPERM),BOXLX,BOXLY, &
- & BOXLZ,BULKT,NDISTS(1:MAXNEI*NPERM,J1),NIDX(1:MAXNEI*NPERM,J1),MAXNEI)
-    NDUMMY = NDUMMY + NPERM
-ENDDO
-
-END SUBROUTINE PERMPAIRDISTS
-
 FUNCTION BOUNDROTDISTANCE(D2,COSW,SINW,RA,RB) RESULT(LDIST)
 
 IMPLICIT NONE
@@ -934,7 +769,8 @@ END SUBROUTINE QUEUECLEAR
 
 SUBROUTINE INITIALISE(COORDSB,COORDSA,NATOMS,NBOXLX,NBOXLY,NBOXLZ,NBULKT)
 
-!USE COMMONS, ONLY: PERMINVOPT, OHCELLT
+USE ALIGNUTILS, ONLY: OHOPS
+
 IMPLICIT NONE
 
 INTEGER, INTENT(IN) :: NATOMS
@@ -943,7 +779,7 @@ DOUBLE PRECISION, INTENT(IN) :: COORDSB(3*NATOMS), COORDSA(3*NATOMS), &
 LOGICAL, INTENT(IN) :: NBULKT
 
 DOUBLE PRECISION BVEC(3)
-INTEGER I, J, K, IND, NDUMMY, NUMSTRUCTS
+INTEGER I, J, K, IND, NUMSTRUCTS
 
 BOXLX = NBOXLX
 BOXLY = NBOXLY
@@ -961,11 +797,9 @@ NBAD = 0
 ! --------------------------------------------------------------------------- !
 
 NUMSTRUCTS = 1
-IF (PERMINVOPT) THEN
-    NUMSTRUCTS = 2
-ELSE IF (BULKT.AND.OHCELLT) THEN
-    NUMSTRUCTS = 48
-ENDIF
+IF (PERMINVOPT.AND.(.NOT.BULKT)) NUMSTRUCTS = 2
+IF (BULKT.AND.OHCELLT) NUMSTRUCTS = 48
+
 
 CALL REALLOCATEARRAYS(NATOMS, NUMSTRUCTS, BULKT)
 
@@ -981,18 +815,7 @@ END DO
 !    storing coordinates to module
 ! --------------------------------------------------------------------------- !
 
-NDUMMY = 0
 IF(BULKT) THEN
-!    Needed for k-d trees stuff
-!    DO I=1,NPERMGROUP
-!        DO J=1, NPERMSIZE(I)
-!            IND = PERMGROUP(NDUMMY+J)
-!            SAVECOORDSB(3*IND-2) = COORDSB(3*IND-2) - BOXLX*ANINT(COORDSB(3*IND-2)/BOXLX)
-!            SAVECOORDSB(3*IND-1) = COORDSB(3*IND-1) - BOXLY*ANINT(COORDSB(3*IND-1)/BOXLY)
-!            SAVECOORDSB(3 * IND) = COORDSB(3 * IND) - BOXLZ*ANINT(COORDSB(3 * IND)/BOXLZ)
-!        ENDDO
-!    NDUMMY = NDUMMY + NPERMSIZE(I)
-!    ENDDO
     SAVECOORDSB = COORDSB
     IF(OHCELLT) THEN
         DO I=1,48
@@ -1038,38 +861,6 @@ ELSE
         SAVERA(:,2) = SAVERA(:,1)
     END IF
 END IF
-
-! --------------------------------------------------------------------------- !
-! Allocate and populate k-d trees, should be a faster way of finding nearest
-! neighbours, currently isn't...
-! --------------------------------------------------------------------------- !
-
-!IF(ALLOCATED(KDTREES)) DEALLOCATE(KDTREES)
-!ALLOCATE(KDTREES(NPERMGROUP))
-!NDUMMY = 0
-!DO I=1,NPERMGROUP
-!    IF(BULKT) THEN
-!    DO K=0,8
-!        BVEC(1) = BOXLX*LVECS(1,K)
-!        BVEC(2) = BOXLY*LVECS(2,K)
-!        BVEC(3) = BOXLZ*LVECS(3,K)
-!        DO J=1, NPERMSIZE(I)
-!            IND = PERMGROUP(NDUMMY+J)
-!            PERMCOORDSB(1,J+K*NPERMSIZE(I),I) = SAVECOORDSB(3*IND-2) + BVEC(1)
-!            PERMCOORDSB(2,J+K*NPERMSIZE(I),I) = SAVECOORDSB(3*IND-1) + BVEC(2)
-!            PERMCOORDSB(3,J+K*NPERMSIZE(I),I) = SAVECOORDSB(3*IND) + BVEC(3)
-!        ENDDO
-!    ENDDO
-!    KDTREES(I)%TREE => KDTREE2_CREATE(PERMCOORDSB(:,:NPERMSIZE(I)*9,I),NPERMSIZE(I)*9,.true.,.true.)
-!    ELSE
-!        DO J=1, NPERMSIZE(I)
-!            IND = PERMGROUP(NDUMMY+J)
-!            PERMCOORDSB(:,J,I)=COORDSB(3*IND-2:3*IND) - (/CMBX,CMBY,CMBZ/)
-!        ENDDO
-!        KDTREES(I)%TREE => KDTREE2_CREATE(PERMCOORDSB(:,:NPERMSIZE(I),I),NPERMSIZE(I),.true.,.true.)
-!    END IF
-!    NDUMMY = NDUMMY + NPERMSIZE(I)
-!ENDDO
 
 CALL QUEUECLEAR()
 
@@ -1145,132 +936,6 @@ NSETS = 0
 
 END SUBROUTINE SETPERM
 
-SUBROUTINE PAIRDISTS(n, p, q, sx, sy, sz, pbc, cc, kk, maxnei)
-      implicit none
-
-!     Input
-!       n  : System size
-!       p,q: Coordinate vectors (n particles)
-!       s  : Box lengths (or dummy if open B.C.)
-!       pbc: Periodic boundary conditions?
-      integer, intent(in) :: n, maxnei
-      double precision, intent(in) :: p(3*n), q(3*n), sx, sy, sz
-      logical, intent(in) :: pbc
-      double precision s(3)
-
-!     Output
-!       perm: Permutation so that p(i) <--> q(perm(i))
-!       dist: Minimum attainable distance
-!     We have
-      double precision, intent(out) :: cc(n*maxnei)
-      integer, intent(out) :: kk(n*maxnei)
-      double precision DUMMY
-
-!     Parameters
-!       scale : Precision
-!       maxnei: Maximum number of closest neighbours
-      double precision scale, d, h
-
-      parameter (scale = 1.0d6   )
-!      parameter (maxnei = 60     )
-
-      integer*8 first(n+1)!, x(n), y(n)
-!      integer*8 u(n), v(n)
-      integer   m, i, j, k, l, l2, t, a
-      integer*8 n8, sz8
-      integer J1
-
-!     Distance function
-      double precision permdist
-
-      s(1)=sx
-      s(2)=sy
-      s(3)=sz
-      m = maxnei
-      if(n .le. maxnei) m = n
-      sz8 = m*n
-      n8 = n
-
-      do i=0,n
-         first(i+1) = i*m + 1
-      enddo
-
-      if(m .eq. n) then
-!     Compute the full matrix...
-         do i=1,n
-            k = first(i)-1
-            do j=1,n
-               cc(k+j) = permdist(p(3*i-2), q(3*j-2), s, pbc)
-               kk(k+j) = j
-!              write(*,*) i, j, '-->', cc(k+j)
-            enddo
-         enddo
-      else
-!     We need to store the distances of the maxnei closeest neighbors
-!     of each particle. The following builds a heap to keep track of
-!     the maxnei closest neighbours seen so far. It might be more
-!     efficient to use quick-select instead... (This is definitely
-!     true in the limit of infinite systems.)
-        do i=1,n
-           k = first(i)-1
-           do j=1,m
-              cc(k+j) = permdist(p(3*i-2), q(3*j-2), s, pbc)
-              kk(k+j) = j
-              l = j
-10            if(l .le. 1) goto 11
-              l2 = l/2
-              if(cc(k+l2) .lt. cc(k+l)) then
-                 h = cc(k+l2)
-                 cc(k+l2) = cc(k+l)
-                 cc(k+l) = h
-                 t = kk(k+l2)
-                 kk(k+l2) = kk(k+l)
-                 kk(k+l) = t
-                 l = l2
-                 goto 10
-              endif
-11         enddo
-
-           do j=m+1,n
-              d = permdist(p(3*i-2), q(3*j-2), s, pbc)
-              if(d .lt. cc(k+1)) then
-                 cc(k+1) = d
-                 kk(k+1) = j
-                 l = 1
-20               l2 = 2*l
-                 if(l2+1 .gt. m) goto 21
-                 if(cc(k+l2+1) .gt. cc(k+l2)) then
-                    a = k+l2+1
-                 else
-                    a = k+l2
-                 endif
-                 if(cc(a) .gt. cc(k+l)) then
-                    h = cc(a)
-                    cc(a) = cc(k+l)
-                    cc(k+l) = h
-                    t = kk(a)
-                    kk(a) = kk(k+l)
-                    kk(k+l) = t
-                    l = a-k
-                    goto 20
-                 endif
-21               if (l2 .le. m) THEN ! split IF statements to avoid a segmentation fault
-                    IF (cc(k+l2) .gt. cc(k+l)) then
-                       h = cc(k+l2)
-                       cc(k+l2) = cc(k+l)
-                       cc(k+l) = h
-                       t = kk(k+l2)
-                       kk(k+l2) = kk(k+l)
-                       kk(k+l) = t
-                    ENDIF
-                 endif
-              endif
-           enddo
-        enddo
-      ENDIF
-
-END SUBROUTINE PAIRDISTS
-
 SUBROUTINE TRANSFORM(NEWCOORDSA, NATOMS, VECTOR, IDNUM)
 
 IMPLICIT NONE
@@ -1287,13 +952,6 @@ IF(BULKT) THEN
         NEWCOORDSA(3*I-1) = SAVECOORDSA(3*I-1,IDNUM) - VECTOR(2)
         NEWCOORDSA(3*I  ) = SAVECOORDSA(3*I  ,IDNUM) - VECTOR(3)
     ENDDO
-    ! NEWMINDIST superimposes COMs of coordinates
-!    NEWCOORDSA(3*I-2) = NEWCOORDSA(3*I-2) + &
-! & BOXLX*NINT((SAVECOORDSB(3*I-2)-NEWCOORDSA(3*I-2))/BOXLX)
-!    NEWCOORDSA(3*I-1) = NEWCOORDSA(3*I-1) + &
-! & BOXLY*NINT((SAVECOORDSB(3*I-1)-NEWCOORDSA(3*I-1))/BOXLY)
-!    NEWCOORDSA(3*I  ) = NEWCOORDSA(3*I  ) + &
-! & BOXLZ*NINT((SAVECOORDSB(3*I  )-NEWCOORDSA(3*I  ))/BOXLZ)
 ELSE
     CALL ANGLEAXIS2MAT(VECTOR, TRMAT)
     DO I=1,NATOMS
@@ -1355,121 +1013,61 @@ IMPLICIT NONE
 INTEGER, INTENT(IN) :: NATOMS, NUMSTRUCTS
 LOGICAL, INTENT(IN) :: BULKT
 
-IF(ALLOCATED(PERMCOORDSB))  DEALLOCATE(PERMCOORDSB)
-IF(BULKT) THEN
-    ALLOCATE(PERMCOORDSB(3,9*NATOMS,NPERMGROUP))
-ELSE
-    ALLOCATE(PERMCOORDSB(3,NATOMS,NPERMGROUP))
+IF (SIZE(SAVECOORDSA).NE.(3*NATOMS*NUMSTRUCTS)) THEN
+    IF(ALLOCATED(SAVECOORDSB))  DEALLOCATE(SAVECOORDSB,SAVECOORDSA)
+    IF(ALLOCATED(SAVERA)) DEALLOCATE(SAVERA,SAVERB,BESTCOORDSA,BESTRMAT, &
+     & BESTDISP,BESTITERS,BESTPERMS)
+    ALLOCATE(SAVECOORDSB(3*NATOMS),SAVECOORDSA(3*NATOMS,NUMSTRUCTS), &
+     & SAVERB(NATOMS),SAVERA(NATOMS,NUMSTRUCTS),BESTCOORDSA(3*NATOMS,NUMSTRUCTS), &
+     & BESTRMAT(3,3,NUMSTRUCTS),BESTDISP(3,NUMSTRUCTS),BESTITERS(NUMSTRUCTS), &
+     & BESTPERMS(NATOMS,NUMSTRUCTS))
 END IF
 
-IF(ALLOCATED(SAVECOORDSB))  DEALLOCATE(SAVECOORDSB,SAVECOORDSA)
-IF(ALLOCATED(SAVERA)) DEALLOCATE(SAVERA,SAVERB,BESTCOORDSA,BESTRMAT,BESTITERS)
-ALLOCATE(SAVECOORDSB(3*NATOMS),SAVECOORDSA(3*NATOMS,NUMSTRUCTS), &
- & SAVERB(NATOMS),SAVERA(NATOMS,NUMSTRUCTS),BESTCOORDSA(3*NATOMS,NUMSTRUCTS), &
- & BESTRMAT(3,3,NUMSTRUCTS),BESTITERS(NUMSTRUCTS))
+IF (SIZE(PDUMMYA).NE.(3*NATOMS)) THEN
+    IF(ALLOCATED(PDUMMYA)) DEALLOCATE(PDUMMYA,PDUMMYB,DUMMYA,DUMMYB)
+    ALLOCATE(PDUMMYA(3*NATOMS),PDUMMYB(3*NATOMS),DUMMYA(3*NATOMS), &
+     & DUMMYB(3*NATOMS))
+END IF
 
-IF(ALLOCATED(PDUMMYA)) DEALLOCATE(PDUMMYA,PDUMMYB,DUMMYA,DUMMYB,NEWPERM,LPERM)
-IF(ALLOCATED(INVPERMGROUP)) DEALLOCATE(INVPERMGROUP)
-ALLOCATE(PDUMMYA(3*NATOMS),PDUMMYB(3*NATOMS),DUMMYA(3*NATOMS), &
- & DUMMYB(3*NATOMS),NEWPERM(NATOMS),LPERM(NATOMS),INVPERMGROUP(NATOMS))
+IF (SIZE(DUMMYLDISTS).NE.(PMAXNEI*NATOMS*NPERMGROUP)) THEN
+    IF(ALLOCATED(DUMMYDISTS)) DEALLOCATE(DUMMYDISTS, DUMMYIDX)
+    IF(ALLOCATED(DUMMYNEARDISTS)) DEALLOCATE(DUMMYNEARDISTS,DINVIDX,DUMMYNEARIDX, &
+     & DUMMYLDISTS,DUMMYNEARLDISTS, DUMMYLDISTS2,DUMMYDOTDISP,DUMMYDISPS,PDUMMYND)
+    ALLOCATE(DUMMYDISTS(PMAXNEI*NATOMS,NPERMGROUP),DUMMYNEARDISTS(NATOMS), &
+     & PDUMMYND(NATOMS),DUMMYIDX(PMAXNEI*NATOMS,NPERMGROUP),DUMMYNEARIDX(NATOMS), &
+     & DINVIDX(NATOMS*NATOMS,NPERMGROUP),DUMMYLDISTS(PMAXNEI*NATOMS,NPERMGROUP), &
+     & DUMMYNEARLDISTS(NATOMS),DUMMYLDISTS2(PMAXNEI*NATOMS,NPERMGROUP), &
+     & DUMMYDISPS(3,NATOMS*PMAXNEI,NPERMGROUP),DUMMYDOTDISP(4,NATOMS*PMAXNEI,NPERMGROUP))
+END IF
 
-IF(ALLOCATED(DUMMYDISTS)) DEALLOCATE(DUMMYDISTS,DUMMYNEARDISTS,PDUMMYND, &
- & DUMMYDISPS,DUMMYIDX,DINVIDX,DUMMYNEARIDX,DUMMYLDISTS,DUMMYNEARLDISTS, &
- & DUMMYLDISTS2,DUMMYDOTDISP)
-ALLOCATE(DUMMYDISTS(PMAXNEI*NATOMS,NPERMGROUP),DUMMYNEARDISTS(NATOMS), &
- & PDUMMYND(NATOMS),DUMMYIDX(PMAXNEI*NATOMS,NPERMGROUP),DUMMYNEARIDX(NATOMS), &
- & DINVIDX(NATOMS*NATOMS,NPERMGROUP),DUMMYLDISTS(PMAXNEI*NATOMS,NPERMGROUP), &
- & DUMMYNEARLDISTS(NATOMS),DUMMYLDISTS2(PMAXNEI*NATOMS,NPERMGROUP), &
- & DUMMYDISPS(3,NATOMS*PMAXNEI,NPERMGROUP),DUMMYDOTDISP(4,NATOMS*PMAXNEI,NPERMGROUP))
+IF (SIZE(INVPERMGROUP).NE.(NATOMS)) THEN
+    IF(ALLOCATED(NEWPERM)) DEALLOCATE(NEWPERM,LPERM)
+    IF(ALLOCATED(INVPERMGROUP)) DEALLOCATE(INVPERMGROUP, PERMBEST)
+    ALLOCATE(NEWPERM(NATOMS), LPERM(NATOMS), PERMBEST(NATOMS), INVPERMGROUP(NATOMS))
+END IF
 
 END SUBROUTINE REALLOCATEARRAYS
 
 SUBROUTINE SETCLUSTER(INVERT)
 
-USE COMMONS, ONLY : MYUNIT,NFREEZE,GEOMDIFFTOL,ORBITTOL,FREEZE,PULLT,TWOD,  &
-    &   EFIELDT,AMBERT,QCIAMBERT,AMBER12T,CHRMMT,STOCKT,CSMT,PERMDIST,      &
-    &   LOCALPERMDIST,LPERMDIST,OHCELLT,QCIPERMCHECK,PERMOPT,PERMINVOPT,    &
-    &   NOINVERSION,GTHOMSONT,MKTRAPT,MULLERBROWNT,RIGID,OHCELLT
-
 IMPLICIT NONE
-
 LOGICAL, INTENT(IN) :: INVERT
 
 MYUNIT = 6
-NFREEZE = 0
-GEOMDIFFTOL = 0.5D0
-ORBITTOL = 1.0D-3
-
-FREEZE = .FALSE.
-PULLT = .FALSE.
-TWOD = .FALSE.
-EFIELDT = .FALSE.
-AMBERT = .FALSE.
-QCIAMBERT = .FALSE.
-AMBER12T = .FALSE.
-CHRMMT = .FALSE.
-STOCKT = .FALSE.
-CSMT = .FALSE.
-PERMDIST = .TRUE.
-LOCALPERMDIST = .FALSE.
-LPERMDIST = .FALSE.
-QCIPERMCHECK = .FALSE.
-PERMOPT = .TRUE.
 PERMINVOPT = INVERT
-NOINVERSION = .FALSE.
-GTHOMSONT = .FALSE.
-MKTRAPT = .FALSE.
-MULLERBROWNT = .FALSE.
-RIGID = .FALSE.
-OHCELLT = .FALSE.
+NOINVERSION = .NOT.INVERT
 
 END SUBROUTINE SETCLUSTER
 
 SUBROUTINE SETBULK(INVERT)
 
-USE COMMONS, ONLY : MYUNIT,NFREEZE,GEOMDIFFTOL,ORBITTOL,FREEZE,PULLT,TWOD,  &
-    &   EFIELDT,AMBERT,QCIAMBERT,AMBER12T,CHRMMT,STOCKT,CSMT,PERMDIST,      &
-    &   LOCALPERMDIST,LPERMDIST,OHCELLT,QCIPERMCHECK,PERMOPT,PERMINVOPT,    &
-    &   NOINVERSION,GTHOMSONT,MKTRAPT,MULLERBROWNT,RIGID,OHCELLT
-
 IMPLICIT NONE
-
 LOGICAL, INTENT(IN) :: INVERT
 
 MYUNIT = 6
-NFREEZE = 0
-GEOMDIFFTOL = 0.5D0
-ORBITTOL = 1.0D-3
-
-FREEZE = .FALSE.
-PULLT = .FALSE.
-TWOD = .FALSE.
-EFIELDT = .FALSE.
-AMBERT = .FALSE.
-QCIAMBERT = .FALSE.
-AMBER12T = .FALSE.
-CHRMMT = .FALSE.
-STOCKT = .FALSE.
-CSMT = .FALSE.
-PERMDIST = .FALSE.
-LOCALPERMDIST = .FALSE.
-LPERMDIST = .FALSE.
-QCIPERMCHECK = .FALSE.
-PERMOPT = .FALSE.
 PERMINVOPT = .FALSE.
-NOINVERSION = .FALSE.
-GTHOMSONT = .FALSE.
-MKTRAPT = .FALSE.
-MULLERBROWNT = .FALSE.
-RIGID = .FALSE.
 OHCELLT = INVERT
 
 END SUBROUTINE SETBULK
 
 END MODULE
-
-INCLUDE "bulkmindist.f90"
-INCLUDE "minpermdist.f90"
-INCLUDE "newmindist.f90"
-INCLUDE "minperm.f90"
-INCLUDE "orient.f90"

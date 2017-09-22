@@ -307,7 +307,7 @@ class BranchnBoundAlignment(object):
         self.gopermdist.initialise(
             self.coordsb, self.coordsa, self.boxvec[0], self.boxvec[1],
             self.boxvec[2], self.bulk)
-        self.gopermdist.debug=debug
+        self.libbnb.alignutils.debug = debug
 
     def __call__(self, pos1, pos2, perm=None, invert=None, debug=False,
                  force=False, niter=1000, iprint=1):
@@ -341,6 +341,7 @@ class BranchnBoundAlignment(object):
             rmat = self.gopermdist.bestrmat[:,:,bestid]
             return bestupper.item(), coordsb, coordsa, rmat
 
+
 if __name__ == "__main__":
     import os
     import csv
@@ -348,6 +349,10 @@ if __name__ == "__main__":
     # Turn debug on if you want status messages
     # You will get A LOT of print statements!
     debug=False
+    # Turn periodic alignment on, much slower...
+    periodic = True
+    # Turn octahedral symmetry searching on, 48 times slower!
+    ohcell = True #False
 
 
     def readFile(filename):
@@ -361,19 +366,26 @@ if __name__ == "__main__":
     pos1 = readFile(os.path.join(datafolder, 'coords'))
     pos2 = readFile(os.path.join(datafolder, 'finish'))
 
-
-
     bnbpy = BranchandBoundMaster()
 
 
-    dpyclus, coordsb, coordsa = bnbpy(pos1, pos2)
-    fig, axes = bnbpy.plot()
+    if not f90.have_libbnb:
+        # Much slower!
+        dpyclus, coordsb, coordsa = bnbpy(pos1, pos2)
+        fig, axes = bnbpy.plot()
 
-    if f90.have_fortran:
+    if f90.have_libbnb:
         bnbcluster = BranchnBoundAlignment()
-        dcluster, coordsb, coordsa, rmat = bnbcluster(pos1, pos2, debug=False, niter=1000)
+        dcluster, coordsb, coordsa, rmat = bnbcluster(pos1, pos2, debug=debug, niter=100)
 
-    if f90.have_fortran:
+    print 'Cluster alignment:'
+    print 'On example LJ38 data, distance should = 1.4767'
+    if not f90.have_libbnb:
+        print 'Branch and bound python alignment: ', dpyclus
+    if f90.have_libbnb:
+        print 'Branch and bound Fortran alignment: ', dcluster
+
+    if f90.have_libbnb and periodic:
         datafolder = "../examples/BLJ256"
 
         pos1 = readFile(os.path.join(datafolder, 'coords'))
@@ -386,16 +398,16 @@ if __name__ == "__main__":
         permlist = [np.arange(ntypeA), np.arange(ntypeA, natoms)]
         bnbbulk = BranchnBoundAlignment(invert=False, boxSize=boxSize)
 
-        # Testing for octahderal symetries will take ~48 times longer!
-        dbulk, coordsab, coordsa = bnbbulk(pos1, pos2, debug=False, niter=10000)
-
-    print 'Summary:'
-    print 'Cluster alignment:'
-    print 'On example LJ38 data, distance should = 1.4767'
-    print 'Branch and bound alignment: ', dpyclus
-    if f90.have_fortran:
-        print 'Branch and bound alignment: ', dcluster
+        dbulk, coordsab, coordsa = bnbbulk(pos1, pos2, debug=debug, niter=50)
 
         print '\nPeriodic alignment:'
         print 'On example BLJ256 data, distance should = 1.559'
         print 'Branch and bound alignment: ', dbulk
+
+        # Testing for octahderal symetries will take ~48 times longer!
+
+        if ohcell:
+            bnbbulk = BranchnBoundAlignment(boxSize=boxSize)
+            dbulk, coordsab, coordsa = bnbbulk(pos1, pos2.dot([[0,1,0],[1,0,0],[0,0,1]]),
+                                               debug=False, niter=1000, invert=True)
+            print "Octahedral alignment: ", dbulk
