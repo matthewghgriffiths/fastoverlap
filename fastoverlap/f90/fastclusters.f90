@@ -2,17 +2,17 @@
 !
 !    FORTRAN Module for calculating Fast SO(3) Fourier transforms (SOFTs)
 !    Copyright (C) 2017  Matthew Griffiths
-!    
+!
 !    This program is free software; you can redistribute it and/or modify
 !    it under the terms of the GNU General Public License as published by
 !    the Free Software Foundation; either version 2 of the License, or
 !    (at your option) any later version.
-!    
+!
 !    This program is distributed in the hope that it will be useful,
 !    but WITHOUT ANY WARRANTY; without even the implied warranty of
 !    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 !    GNU General Public License for more details.
-!    
+!
 !    You should have received a copy of the GNU General Public License along
 !    with this program; if not, write to the Free Software Foundation, Inc.,
 !    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
@@ -37,15 +37,15 @@
 !    ALIGN(COORDSB, COORDSA, NATOMS, DEBUG, L, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
 !        MAIN ALIGNMENT ALGORITHM ROUTINE
 !        KWIDTH is the Gaussian Kernel width, this should probably be set to ~1/3 interatomic separation.
-!        Performs alignment using SO(3) Coefficients calculated directly. 
+!        Performs alignment using SO(3) Coefficients calculated directly.
 !        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
-!   
+!
 !    ALIGNHARM(COORDSB, COORDSA, NATOMS, DEBUG, N, L, HWIDTH, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
-!        Performs alignment using SO(3) Coefficients calculated using Quantum Harmonic Oscillator Basis 
+!        Performs alignment using SO(3) Coefficients calculated using Quantum Harmonic Oscillator Basis
 !        KWIDTH is the Gaussian Kernel width,  HWIDTH is the Quantum Harmonic Oscillator Basis length scale
 !        These need to be carefully chosen along with N and L to ensure calculation is stable and accurate.
 !        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
-! 
+!
 !    ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROTATIONS,ANGLES)
 !        Primary alignment routine, called by ALIGN1
 !        Needs PERMGROUP, NPERMSIZE, NPERMGROUP, BESTPERM to be set and properly allocated
@@ -56,39 +56,39 @@
 !    HARMONICNL(N,L,RJ,SIGMA,R0,RET)
 !        Calculates Harmonic integral up to N,L
 !        Note calculation unstable, so SIGMA must be > 10 RJ to get good results
-!    
+!
 !    RYML(COORD, R, YML, L)
 !        Calculates |COORD| and the Spherical Harmonic associated with COORD up to l
-!    
+!
 !    HARMONICCOEFFS(COORDS, NATOMS, CNML, N, L, HWIDTH, KWIDTH)
 !        Projects structure into Quantum Harmonic Oscillator Basis with scale HWIDTH and
 !        Gaussian kernel width KWIDTH up to order N and angular moment degree L
-!    
+!
 !    DOTHARMONICCOEFFS(C1NML, C2NML, N, L, IMML)
-!        Calculates the SO(3) Fourier Coefficients of the overlap integral of two 
+!        Calculates the SO(3) Fourier Coefficients of the overlap integral of two
 !        structures with coefficient arrays C1NML and C2NML
-!    
+!
 !    FOURIERCOEFFS(COORDSB, COORDSA, NATOMS, L, KWIDTH, IMML, YMLB, YMLA)
-!        Calculates the SO(3) Fourier Coefficients of the overlap integral of two 
+!        Calculates the SO(3) Fourier Coefficients of the overlap integral of two
 !        structures directly by calculating the coefficients of the NATOMS**2
 !        Gaussian overlap functions.
-!    
+!
 !    CALCOVERLAP(IMML, OVERLAP, L, ILMM)
 !        Calculates the overlap integral array from SO(3) Fourier Coefficients IMML
 !        Also returns ILMM, the transposed and rolled version of IMML used by DSOFT
-!    
+!
 !    FINDROTATIONS(OVERLAP, L, ANGLES, AMPLITUDES, NROTATIONS, DEBUG)
 !        Finds the maximum overlap Euler angles of an overlap integral array
-!    
+!
 !    EULERM(A,B,G,ROTM)
 !        Calculates rotation matrix, ROTM, corresponding to  Euler angles, a,b,g
-!    
+!
 !    EULERINVM(A,B,G,ROTM)
 !        Calculates transpose/inverse of rotation matrix corresponding to Euler angles, a,b,g
-!    
+!
 !    SETCLUSTER()
 !        Used to set keywords if they're not set already
-!    
+!
 !    CHECKKEYWORDS()
 !        Sanity checks for the keywords
 
@@ -105,7 +105,7 @@
 !    COMMONS (commons.f90)
 !    FASTOVERLAPUTILS (fastutils.f90) depends on (minperm.f90)
 !        Helper Module Needed for Peak Fitting and FFT routines
-!    DSOFT (DSOFT.f90) 
+!    DSOFT (DSOFT.f90)
 !        Module for performing discrete SO(3) transforms, depends on fftw.
 
 !***********************************************************************
@@ -120,7 +120,8 @@ INCLUDE "DSOFT.f90"
 MODULE CLUSTERFASTOVERLAP
 
 ! USE COMMONS, ONLY : PERMGROUP, NPERMSIZE, NPERMGROUP, NATOMS, BESTPERM, MYUNIT
-USE ALIGNUTILS, ONLY : PERMGROUP, NPERMSIZE, NPERMGROUP, NATOMS, BESTPERM, MYUNIT
+USE ALIGNUTILS, ONLY : PERMGROUP, NPERMSIZE, NPERMGROUP, NATOMS, BESTPERM, MYUNIT, &
+ & SAVECOORDS, NSTORED
 USE FASTOVERLAPUTILS, ONLY : DUMMYA, DUMMYB, XBESTA, XBESTASAVE
 
 LOGICAL, SAVE :: PERMINVOPTSAVE, NOINVERSIONSAVE
@@ -132,7 +133,7 @@ CONTAINS
 SUBROUTINE ALIGN(COORDSB, COORDSA, NATOMS, DEBUG, L, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
 
 !  COORDSA becomes the optimal alignment of the optimal permutation(-inversion)
-!  isomer. DISTANCE is the residual square distance for the best alignment with 
+!  isomer. DISTANCE is the residual square distance for the best alignment with
 !  respect to permutation(-inversion)s as well as orientation and centre of mass.
 !  COORDSA and COORDSB are both centred on the ORIGIN
 
@@ -142,7 +143,7 @@ SUBROUTINE ALIGN(COORDSB, COORDSA, NATOMS, DEBUG, L, KWIDTH, DISTANCE, DIST2, RM
 
 !  RMATBEST gives the optimal rotation matrix
 
-!  L is the maximum angular momentum degree up to which the SO(3) coefficients 
+!  L is the maximum angular momentum degree up to which the SO(3) coefficients
 !  are calculated number of coefficients that will be calculated = 1/3 (L+1)(2L+1)(2L+3)
 
 !  Number of Calculations for SO(3) calculations ~ O(1/3 (L+1)(2L+1)(2L+3) * NATOMS**2)
@@ -215,7 +216,7 @@ SAVEB(1:3*NATOMS) = COORDSB(1:3*NATOMS)
 NROT = NROTATIONS
 CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTSAVE,DIST2SAVE,RMATSAVE,NROT,ANGLES)
 
-IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN 
+IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN
     IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> inverting geometry for comparison with target'
     ! Saving non inverted configuration
     XBESTASAVE(1:3*NATOMS) = SAVEA(1:3*NATOMS)
@@ -277,7 +278,7 @@ END SUBROUTINE ALIGN
 
 SUBROUTINE ALIGNHARM(COORDSB, COORDSA, NATOMS, DEBUG, N, L, HWIDTH, KWIDTH, DISTANCE, DIST2, RMATBEST, NROTATIONS)
 !  COORDSA becomes the optimal alignment of the optimal permutation(-inversion)
-!  isomer. DISTANCE is the residual square distance for the best alignment with 
+!  isomer. DISTANCE is the residual square distance for the best alignment with
 !  respect to permutation(-inversion)s as well as orientation and centre of mass.
 !  COORDSA and COORDSB are both centred on the ORIGIN
 
@@ -286,7 +287,7 @@ SUBROUTINE ALIGNHARM(COORDSB, COORDSA, NATOMS, DEBUG, N, L, HWIDTH, KWIDTH, DIST
 !  KWIDTH is the width of the Gaussian kernels that are centered on each of the
 !  atomic coordinates, whose overlap integral is maximised to find the optimal
 !  rotations
-!  L is the maximum angular momentum degree up to which the SO(3) coefficients 
+!  L is the maximum angular momentum degree up to which the SO(3) coefficients
 !  are calculated number of coefficients that will be calculated = 1/3 (L+1)(2L+1)(2L+3)
 
 !  HWIDTH is the lengthscale of the Quantum Harmonic Oscillator Basis
@@ -349,7 +350,7 @@ ENDDO
 NROT = NROTATIONS
 CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTSAVE,DIST2SAVE,RMATSAVE,NROT,ANGLES)
 
-IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN 
+IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN
     IF (DEBUG) WRITE(MYUNIT,'(A)') 'fastoverlap> inverting geometry for comparison with target'
     ! Saving non inverted configuration
     XBESTASAVE(1:3*NATOMS) = SAVEA(1:3*NATOMS)
@@ -375,7 +376,7 @@ IF (PERMINVOPTSAVE.AND.(.NOT.(CHRMMT.OR.AMBERT.OR.AMBER12T))) THEN
         NDUMMY=NDUMMY+NPERMSIZE(J1)
     ENDDO
     CALL ALIGNCOEFFS(SAVEB,SAVEA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROT,ANGLES)
-    
+
     IF (DISTANCE.LT.DISTSAVE) THEN
         IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') &
     &   'fastoverlap> inversion found better alignment, distance=', distance
@@ -408,7 +409,7 @@ END SUBROUTINE ALIGNHARM
 
 SUBROUTINE ALIGNCOEFFS(COORDSB,COORDSA,NATOMS,IMML,L,DEBUG,DISTANCE,DIST2,RMATBEST,NROTATIONS,ANGLES)
 ! Aligns two structures, specified by COORDSA and COORDSB, aligns COORDSA so it most
-! closely matches COORDSB. 
+! closely matches COORDSB.
 ! Assumes that COORDSA and COORDSB are both centered on their Centers of Mass
 ! Uses precalculated Fourier Coefficients, IMML
 ! Uses minpermdist to refine alignment
@@ -509,7 +510,7 @@ SUBROUTINE HARMONICNL(N,L,RJ,SIGMA,R0,RET)
 !
 ! Calculates the value of the overlap integral up to N and L
 !
-! 4\pi \int_0^{\infty} g_{nl}(r)\exp{\left(-\frac{r^2+{r^p_j}^2}{2\sigma^2}\right)} 
+! 4\pi \int_0^{\infty} g_{nl}(r)\exp{\left(-\frac{r^2+{r^p_j}^2}{2\sigma^2}\right)}
 ! i_l \left( \frac{r r^p_{j}}{\sigma^2} \right) r^2\; \mathrm{d}r
 !
 ! N is the maximum quantum number of the Harmonic basis to calculate up to
@@ -669,7 +670,7 @@ END SUBROUTINE RYML
 SUBROUTINE HARMONICCOEFFS(COORDS, NATOMS, CNML, N, L, HWIDTH, KWIDTH)
 
 !
-! For a set of Gaussian Kernels of width KWIDTH at COORDS, 
+! For a set of Gaussian Kernels of width KWIDTH at COORDS,
 ! this will calculate the coefficients of the isotropic quantum harmonic basis
 ! cnlm with length scale HWIDTH up to N and L.
 !
@@ -704,7 +705,7 @@ END SUBROUTINE HARMONICCOEFFS
 SUBROUTINE HARMONICCOEFFSPERM(COORDS, NATOMS, CNML, N, L, HWIDTH, KWIDTH, NPERMGROUP)
 
 !
-! For a set of Gaussian Kernels of width KWIDTH at COORDS, 
+! For a set of Gaussian Kernels of width KWIDTH at COORDS,
 ! this will calculate the coefficients of the isotropic quantum harmonic basis
 ! cnlm with length scale HWIDTH up to N and L.
 ! Returns coefficients of the different permutations groups

@@ -320,6 +320,7 @@ class BranchnBoundAlignment(object):
             else:
                 self.gopermdist.setcluster(invert)
         self.initialise(pos1, pos2, perm=perm, debug=debug)
+        self.libbnb.alignutils.nstored = 0
         bestupper = np.array(np.inf)
         if self.bulk:
             width = max(self.boxvec)
@@ -352,7 +353,7 @@ if __name__ == "__main__":
     # Turn periodic alignment on, much slower...
     periodic = True
     # Turn octahedral symmetry searching on, 48 times slower!
-    ohcell = True #False
+    ohcell = False #True
 
 
     def readFile(filename):
@@ -409,5 +410,5 @@ if __name__ == "__main__":
         if ohcell:
             bnbbulk = BranchnBoundAlignment(boxSize=boxSize)
             dbulk, coordsab, coordsa = bnbbulk(pos1, pos2.dot([[0,1,0],[1,0,0],[0,0,1]]),
-                                               debug=False, niter=1000, invert=True)
+                                               debug=False, niter=2000, invert=True)
             print "Octahedral alignment: ", dbulk
