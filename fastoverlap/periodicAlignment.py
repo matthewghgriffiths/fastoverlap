@@ -501,7 +501,6 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         self.scale = scale
         self.fast = fastbulk
         self.bulk = self.fast.bulkfastoverlap
-        self.bulk.setbulk()
         if perm is None:
             self.setPerm([np.arange(self.Natoms)])
         else:
