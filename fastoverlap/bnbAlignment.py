@@ -10,8 +10,6 @@ from numpy.linalg import norm
 
 from scipy.spatial import cKDTree
 
-import matplotlib.pyplot as plt
-
 from hungarian import lap
 
 from utils import angle_axis2mat, mat2angle_axis, PriorityQueueHeap
@@ -104,6 +102,7 @@ class BranchandBoundMaster(object):
         return bestNode.upperbound, pos1+cm1, bestNode.rpos2+cm1
 
     def plot(self):
+        import matplotlib.pyplot as plt
         n, ncalc, qsize, quick, vs, widths, lower, upper, best = \
             map(np.array, zip(*self.record))
 
@@ -298,6 +297,9 @@ class BranchnBoundAlignment(object):
         self.gopermdist.setperm(self.Natoms, self.permgroup, self.npermsize)
 
     def initialise(self, pos1, pos2, perm=None, debug=False):
+        pos1 = np.asanyarray(pos1).reshape(-1,3)
+        pos2 = np.asanyarray(pos2).reshape(-1,3)
+
         if perm is not None:
             self.setPerm(perm)
         elif len(pos1) != self.Natoms:

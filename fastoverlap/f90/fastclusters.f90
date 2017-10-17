@@ -150,7 +150,7 @@ IMPLICIT NONE
 INTEGER, INTENT(IN) :: NATOMS, L
 INTEGER, INTENT(IN) :: NROTATIONS
 LOGICAL, INTENT(IN) :: DEBUG
-DOUBLE PRECISION, INTENT(IN) :: KWIDTH ! Gaussian Kernel width
+DOUBLE PRECISION, INTENT(INOUT) :: KWIDTH ! Gaussian Kernel width
 DOUBLE PRECISION, INTENT(INOUT) :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
 DOUBLE PRECISION, INTENT(OUT) :: DISTANCE, DIST2, RMATBEST(3,3)
 
@@ -165,6 +165,10 @@ INTEGER SAVEPERM(NATOMS), KEEPPERM(NATOMS)
 ! Checking keywords are set properly
 CALL CHECKKEYWORDS()
 CALL SETNATOMS(NATOMS)
+
+! If the kernel width is not specified by the user, we choose a value appropriate to this system (1/3 of the average
+! nearest-neighbour separation in COORDSA)
+IF (KWIDTH .LE. 0.0D0) CALL CHOOSE_KWIDTH(NATOMS, COORDSA, COORDSB, KWIDTH, DEBUG)
 
 ! Centering COORDSA and COORDSB on the origin
 COMA = 0.D0
@@ -303,7 +307,7 @@ INTEGER SAVEPERM(NATOMS), KEEPPERM(NATOMS)
 
 
 ! Checking keywords are set properly
-!CALL CHECKKEYWORDS()
+CALL CHECKKEYWORDS()
 CALL SETNATOMS(NATOMS)
 
 ! Calculating overlap integral separately for each permutation group
@@ -1038,6 +1042,63 @@ SING = SIN(G)
   ROTM (3,3) =          COSB
 
 END SUBROUTINE EULERINVM
+
+SUBROUTINE CHOOSE_KWIDTH(NATOMS, COORDSA, COORDSB, KWIDTH, DEBUG)
+! Calculate a reasonable default kernel width for the current alignment problem.
+! KWIDTH is set to 1/3 times the average nearest-neighbour separation in the two clusters.
+! For each atom in each structure, the closest other atom is identified. The distance to these closest atoms is averaged across
+! all atoms and both structures.
+
+IMPLICIT NONE
+
+INTEGER, INTENT(IN)           :: NATOMS
+DOUBLE PRECISION, INTENT(IN)  :: COORDSA(3*NATOMS), COORDSB(3*NATOMS)
+DOUBLE PRECISION, INTENT(OUT) :: KWIDTH
+LOGICAL, INTENT(IN)           :: DEBUG
+
+INTEGER          :: J1, J2
+DOUBLE PRECISION :: DIST, MIN_DIST, SUM_MINDISTS
+
+SUM_MINDISTS = 0.0D0
+
+! Find average NN distance for structure A
+DO J1 = 1, NATOMS  ! Find the nearest-neighbour distance of atom J1
+   MIN_DIST = 1.0D10
+   DO J2 = 1, NATOMS  ! Check all the neighbours of J1
+      IF (J1.EQ.J2) CYCLE
+
+      DIST = SQRT((COORDSA(3*(J1-1)+1)-COORDSA(3*(J2-1)+1))**2 +   &
+    &             (COORDSA(3*(J1-1)+2)-COORDSA(3*(J2-1)+2))**2 +   &
+    &             (COORDSA(3*(J1-1)+3)-COORDSA(3*(J2-1)+3))**2)
+      IF (DIST .LT. MIN_DIST) THEN
+         MIN_DIST = DIST
+      ENDIF
+   ENDDO
+   SUM_MINDISTS = SUM_MINDISTS + MIN_DIST
+ENDDO
+
+! Find average NN distance for structure B
+DO J1 = 1, NATOMS  ! Find the nearest-neighbour distance of atom J1
+   MIN_DIST = 1.0D10
+   DO J2 = 1, NATOMS  ! Check all the neighbours of J1
+      IF (J1.EQ.J2) CYCLE
+
+      DIST = SQRT((COORDSB(3*(J1-1)+1)-COORDSB(3*(J2-1)+1))**2 +   &
+    &             (COORDSB(3*(J1-1)+2)-COORDSB(3*(J2-1)+2))**2 +   &
+    &             (COORDSB(3*(J1-1)+3)-COORDSB(3*(J2-1)+3))**2)
+      IF (DIST .LT. MIN_DIST) THEN
+         MIN_DIST = DIST
+      ENDIF
+   ENDDO
+   SUM_MINDISTS = SUM_MINDISTS + MIN_DIST
+ENDDO
+
+KWIDTH = SUM_MINDISTS/(3*2*NATOMS) ! 2*NATOMS is the number of pairs over which we have averaged.
+                                     ! Divide by 3 so that KWIDTH is 1/3 of the average separation
+
+IF(DEBUG) write(*,*) "fastclusters> Determined an appropriate value for KWIDTH:", KWIDTH
+
+END SUBROUTINE CHOOSE_KWIDTH
 
 SUBROUTINE CHECKKEYWORDS()
 

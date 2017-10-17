@@ -46,7 +46,6 @@ MODULE FASTOVERLAPUTILS
 ! Subroutines:
 !     Permutations Routines
 !         SETPERM
-!         FINDBESTPERMUTATION
 !     Peakfinding subroutines:
 !         SETINDEXES
 !         SETFSPACE
