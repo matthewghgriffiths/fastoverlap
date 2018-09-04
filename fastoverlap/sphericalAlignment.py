@@ -27,8 +27,19 @@ if f90.have_fastclusters:
     fastclusters = f90.fastclusters
 
 class BaseSphericalAlignment(object):
+    calcScale = True
+
     def calcSO3Coeffs(self, pos1, pos2):
         raise NotImplementedError
+
+    def averageSeparation(self, pos):
+        pos = np.asanyarray(pos).reshape(-1,3)
+        triu = np.triu_indices(len(pos), 1)
+        dists = np.linalg.norm(pos[triu[0]] - pos[triu[1]],axis=1)
+        closest = sum(dists[np.logical_or(triu[0]==i,triu[1]==i)].min()
+                      for i in xrange(len(pos)))
+        return closest/len(pos)
+
     ##
     def setJ(self, Jmax):
         self.Jmax = Jmax
@@ -126,12 +137,16 @@ class BaseSphericalAlignment(object):
         return X1, X2
     ##
     def _align(self, pos1, pos2, perm=None, invert=True):
-        X1, X2 = self.COM_shift(pos1, pos2)
         if perm is None:
             if self.perm is None:
                 perm = [np.arange(len(pos1))]
             else:
                 perm = self.perm
+        if self.calcScale:
+            self.scale = (self.averageSeparation(pos1) +
+                          self.averageSeparation(pos2))/6
+
+        X1, X2 = self.COM_shift(pos1, pos2)
         Ilmm = sum(self.calcSO3Coeffs(X1[p], X2[p]) for p in perm)
         R, res = self.findRotation(Ilmm)
         if invert:
@@ -143,12 +158,19 @@ class BaseSphericalAlignment(object):
         return self.refine(X1, X2, R, perm)
     ##
     def align(self, pos1, pos2, perm=None, invert=True, calcCoeffs=None):
-        X1, X2 = self.COM_shift(pos1, pos2)
+        pos1 = np.asanyarray(pos1).reshape(-1,3)
+        pos2 = np.asanyarray(pos2).reshape(-1,3)
+
+        if self.calcScale:
+            self.scale = (self.averageSeparation(pos1) +
+                          self.averageSeparation(pos2))/6
         if perm is None:
             if self.perm is None:
                 perm = [np.arange(len(pos1))]
             else:
                 perm = self.perm
+
+        X1, X2 = self.COM_shift(pos1, pos2)
         if calcCoeffs is None:
             Ilmm = sum(self.calcSO3Coeffs(X1[p], X2[p]) for p in perm)
         else:
@@ -182,12 +204,17 @@ class BaseSphericalAlignment(object):
         return np.atleast_2d(self.soft.indtoEuler(peaks)), amplitude, mean, sigma, f
     ##
     def malign(self, pos1, pos2, perm=None, invert=True, calcCoeffs=None, nrot=10):
-        X1, X2 = self.COM_shift(pos1, pos2)
+
+        if self.calcScale:
+            self.scale = (self.averageSeparation(pos1) +
+                          self.averageSeparation(pos2))/6
         if perm is None:
             if self.perm is None:
                 perm = [np.arange(len(pos1))]
             else:
                 perm = self.perm
+
+        X1, X2 = self.COM_shift(pos1, pos2)
         if calcCoeffs is None:
             Ilmm = sum(self.calcSO3Coeffs(X1[p], X2[p]) for p in perm)
         else:
@@ -207,7 +234,8 @@ class BaseSphericalAlignment(object):
                 return idist, iX1, iX2
         return dist, rX1, rX2
     ##
-    def __call__(self, pos1, pos2, perm=None, invert=True, calcCoeffs=None, nrot=10):
+    def __call__(self, pos1, pos2, perm=None, invert=True, calcCoeffs=None, 
+				 nrot=10, niter=None):
         dist, X1, X2 = self.align(pos1, pos2, perm, invert, calcCoeffs)
         if (norm(X1-X2,axis=1)>self.scale).sum() > len(X1)/3:
             try:
@@ -220,8 +248,12 @@ class BaseSphericalAlignment(object):
 
 
 class SphericalAlign(BaseSphericalAlignment):
-    def __init__(self, scale, Jmax=15, perm=None):
-        self.scale = scale
+    def __init__(self, scale=None, Jmax=15, perm=None):
+        if scale is not None:
+            self.scale = scale
+            self.calcScale = False
+        else:
+            self.calcScale = True
         self.setJ(Jmax)
         self.perm = perm
     ##
@@ -242,8 +274,12 @@ class SphericalAlign(BaseSphericalAlignment):
 
 
 class SphericalHarmonicAlign(BaseSphericalAlignment):
-    def __init__(self, scale, harmscale=1.0, nmax=15, Jmax=15, perm=None):
-        self.scale = scale
+    def __init__(self, scale=None, harmscale=1.0, nmax=15, Jmax=15, perm=None):
+        if scale is not None:
+            self.scale = scale
+            self.calcScale = False
+        else:
+            self.calcScale = True
         self.harmscale = harmscale
         self.setCoeffs(nmax, Jmax, harmscale)
         self.perm = perm

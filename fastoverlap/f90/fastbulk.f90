@@ -304,8 +304,9 @@ ELSE
 ENDIF
 
 ! Calculate number of wavevectors that we need to preserve reasonable level of accuracy
-MAXWAVEK = 1.5 / KWIDTH
-NWAVE = CEILING(2*3.14159265359/MIN(BOXLX,BOXLY,BOXLZ)*MAXWAVEK, 4)
+MAXWAVEK = 0.06 / KWIDTH
+NWAVE = CEILING(1.3 * NATOMS**(1.D0/3.D0), 4)
+!NWAVE = CEILING(2*3.14159265359*MIN(BOXLX,BOXLY,BOXLZ)*MAXWAVEK, 4)
 IF (DEBUG) WRITE(MYUNIT,'(A,G20.10)') 'fastoverlap> max wavevector magnitude set to ', MAXWAVEK
 
 ! Setting size of Fourier Transform array to be fast

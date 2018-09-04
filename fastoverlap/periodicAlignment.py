@@ -360,27 +360,28 @@ class PeriodicAlign(BasePeriodicAlignment):
         dimensionality of the system TODO: TEST
     """
     def __init__(self, Natoms, boxvec, permlist=None, dim=3,
-                 scale=None, maxk=None):
+                 scale=None, n=None):
         self.Natoms = Natoms
         self.boxvec = np.array(boxvec, dtype=float)
         self.dim = dim
+
         if permlist is None:
             self.perm = [np.arange(self.Natoms)]
         else:
             self.perm = map(np.array, permlist)
         self.pos1 = np.zeros((self.Natoms, self.dim))
         self.pos2 = np.zeros((self.Natoms, self.dim))
+
         if scale is None:
             scale = (np.prod(self.boxvec)/self.Natoms)**(1./self.dim)/3.
-        if maxk is None:
-            maxk = 1.5 / scale
+
+        self.n = int(np.ceil(1.3*Natoms**(1./3.))) if n is None else n
         self.scale = scale
         self.factor = 2 * (np.pi*self.scale**2)**(-self.dim*0.5)*self.scale**2 / np.prod(self.boxvec)
-        self.setks(maxk)
+        self.setks()
         self.setPos(self.pos1, self.pos2)
 
-    def setks(self, maxk):
-        self.n = int(np.ceil(2*np.pi/self.boxvec.min()*maxk))
+    def setks(self):
         ps = np.indices((self.n*2+1,)*self.dim) - self.n
         self.ks = 2.*np.pi/self.boxvec[(slice(None),)+(None,)*self.dim]*ps
         self.absks = norm(self.ks, axis=0)
@@ -495,8 +496,8 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         Each array in perm represents a different permutation group
     """
 
-    def __init__(self, Natoms, boxVec, scale=0, perm=None):
-        self.Natoms = Natoms
+    def __init__(self, Natoms, boxVec=None, scale=0, perm=None):
+        self.Natoms = 1 if Natoms is None else Natoms
         self.boxvec = np.array(boxVec, dtype=float)
         self.scale = scale
         self.fast = fastbulk
@@ -513,6 +514,7 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
             self.npermsize = map(len, perm)
             self.permgroup = np.concatenate([np.asanyarray(p)+1
                                              for p in perm])
+            self.Natoms = len(self.permgroup)
         else:
             self.nperm = 1
             self.npermsize = [self.Natoms]
@@ -549,10 +551,13 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         perm : rank-1 array('i') with bounds (Natoms)
             This won't give the correct permutation!
         """
-        if perm is not None:
-            self.setPerm(perm)
         coordsb = np.asanyarray(pos1).flatten()
         coordsa = np.asanyarray(pos2).flatten()
+        if perm is not None:
+            self.setPerm(perm)
+        if coordsa.size != 3 * self.Natoms:
+            self.setPerm([np.arange(coordsa.size/3)])
+
         self.fast.commons.ohcellt = ohcell
         args = (coordsb, coordsa, debug,
                 self.boxvec[0], self.boxvec[1], self.boxvec[2],
