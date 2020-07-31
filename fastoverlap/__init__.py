@@ -4,9 +4,10 @@ __all__ = ['SphericalAlign', 'PeriodicAlign', 'BranchnBoundAlignment', 'SOFT']
 from .sphericalAlignment import SphericalHarmonicAlign, SphericalAlign
 from .periodicAlignment import PeriodicAlign
 from .soft import SOFT
+from .bnbAlignment import BranchandBoundMaster
 
 # Import fortran modules if we can
-import f90 as _f90
+from . import f90 as _f90
 if _f90.have_fastclusters:
     from .sphericalAlignment import SphericalHarmonicAlignFortran, \
         SphericalAlignFortran

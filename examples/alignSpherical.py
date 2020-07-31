@@ -15,11 +15,11 @@ datafolder = "LJ38/"
 def readFile(filename):
     with open(filename, 'rb') as f:
         reader = csv.reader(f, delimiter=' ')
-        dist = [map(float, row) for row in reader]
+        dist = [list(map(float, row)) for row in reader]
     return np.array(dist)
 
-pos1 = readFile(os.path.join(datafolder, 'coords'))
-pos2 = readFile(os.path.join(datafolder, 'finish'))
+pos1 = np.loadtxt(os.path.join(datafolder, 'coords'))
+pos2 = np.loadtxt(os.path.join(datafolder, 'finish'))
 
 natoms = 38
 scale = 0.3 # Set this to be ~ half interatomic separation
@@ -34,32 +34,32 @@ if alignbnb:
 
 if __name__ == "__main__":
 
-    print 'Performing permutational alignment with Hungarian algorithm'
+    print('Performing permutational alignment with Hungarian algorithm')
     permRMS = align.Hungarian(pos1, pos2)[0]*natoms**-0.5
-    print 'RMSD = {:0.4f}'.format(permRMS)
+    print('RMSD = {:0.4f}'.format(permRMS))
 
-    print 'Performing fastoverlap alignment'
+    print('Performing fastoverlap alignment')
     fastdist = align(pos1, pos2)[0]
     fastRMS = fastdist*natoms**-0.5
-    print 'RMSD = {:0.4f}'.format(fastRMS)
+    print('RMSD = {:0.4f}'.format(fastRMS))
     if alignbnb:
-        print 'Performing branch and bound alignment'
+        print('Performing branch and bound alignment')
         bnbdist = bnb(pos1, pos2)[0]
         bnbRMS = bnbdist*natoms**-0.5
-        print 'RMSD = {:0.4f}'.format(bnbRMS)
+        print('RMSD = {:0.4f}'.format(bnbRMS))
 
     import timeit
-    print 'Timing fastoverlap alignment:'
+    print('Timing fastoverlap alignment:')
     alignTimer = timeit.Timer(stmt="salign.align(salign.pos1, salign.pos2)",
                      setup="import alignSpherical as salign")
     aligntime =  alignTimer.timeit(10)/10.
 
-    print 'Average time to align for fastoverlap {:0.3} s'.format(aligntime)
+    print('Average time to align for fastoverlap {:0.3} s'.format(aligntime))
 
     if alignbnb:
         bnbTimer = timeit.Timer(stmt="salign.bnb(salign.pos1, salign.pos2)",
                          setup="import alignSpherical as salign")
         bnbtime =  bnbTimer.timeit(10)/10.
-        print 'Average time to align for branch and bound alignment {:0.3} s'.format(bnbtime)
+        print('Average time to align for branch and bound alignment {:0.3} s'.format(bnbtime))
 
 

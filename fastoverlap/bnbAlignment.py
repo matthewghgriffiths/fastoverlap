@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 
 
-from itertools import product, izip
+from itertools import product
 from heapq import heappop, heappush
+from functools import total_ordering
 
 import numpy as np
 from numpy import sin, sqrt, cos, pi
@@ -10,13 +11,14 @@ from numpy.linalg import norm
 
 from scipy.spatial import cKDTree
 
-from hungarian import lap
+from .utils import (
+    angle_axis2mat, mat2angle_axis, PriorityQueueHeap, lap, _make_cost_matrix)
 
-from utils import angle_axis2mat, mat2angle_axis, PriorityQueueHeap
-
-import f90
+from . import f90
 if f90.have_libbnb:
-    from f90 import libbnb
+    from .f90 import libbnb
+    
+
 
 class BranchandBoundMaster(object):
     def __init__(self, initialNodes=[], rtol=5e-2, atol=1e-3):
@@ -47,7 +49,7 @@ class BranchandBoundMaster(object):
                     node.lowerbound, node.upperbound, self.best.upperbound))
                 if iprint:
                     if self.nodes%iprint == 0:
-                        print self.record[-1]
+                        print((self.record[-1]))
                 newnodes = node.branch()
                 for new in newnodes:
                     self.ncalc += 1
@@ -104,7 +106,7 @@ class BranchandBoundMaster(object):
     def plot(self):
         import matplotlib.pyplot as plt
         n, ncalc, qsize, quick, vs, widths, lower, upper, best = \
-            map(np.array, zip(*self.record))
+            list(map(np.array, list(zip(*self.record))))
 
         fig, axes = plt.subplots(3,1, sharex=True)
 
@@ -135,7 +137,7 @@ class BranchandBoundMaster(object):
         fig.tight_layout(h_pad=0.1)
         return fig, axes
 
-
+@total_ordering
 class BranchNode(object):
     def addtoQueue(self, queue):
         queue.put((self.lowerbound, self))
@@ -143,6 +145,12 @@ class BranchNode(object):
         raise NotImplementedError
     def calcbounds(self, bestupper=np.inf):
         raise NotImplementedError
+        
+    def __eq__(self, other):
+        return self.lowerbound == other.lowerbound 
+    
+    def __gt__(self, other):
+        return self.lowerbound > other.lowerbound
 
 
 class BranchNodeBulk(BranchNode):
@@ -177,13 +185,13 @@ class BranchNodeBulk(BranchNode):
 
         if upperbound < bestupper or force:
             self.quick = False
-            lowerperm = [lap(ld)[0] for ld in ldists]
+            lowerperm = [lap(ld) for ld in ldists]
             self.lowerbound = sqrt(
-                sum(ldists[p,lp] for p,lp in izip(self.perm, lowerperm)))
+                sum(ldists[p,lp] for p,lp in zip(self.perm, lowerperm)))
             if self.lowerbound < bestupper:
-                upperperm = [lap(d)[0] for d in dists]
+                upperperm = [lap(d) for d in dists]
                 self.upperbound = sqrt(
-                    sum(dists[p,lp] for p,lp in izip(self.perm, upperperm)))
+                    sum(dists[p,lp] for p,lp in zip(self.perm, upperperm)))
             else:
                 upperperm = lowerperm
                 self.upperbound = np.inf
@@ -232,7 +240,7 @@ class BranchNodeCluster(BranchNode):
 
         if upperbound < bestupper or force:
             self.quick = False
-            dists = ((self.pos1[:,None,:]-rpos2[None,:,:])**2).sum(2)
+            dists = _make_cost_matrix(self.pos1, rpos2)
 
             cosa = 0.5*(self.r1pr2 - dists)/self.r1tr2
             sina = sqrt(np.clip(1.-cosa**2,0.,1.))
@@ -242,11 +250,11 @@ class BranchNodeCluster(BranchNode):
             cosdm = np.where(cosa>cosd, 1., cosa*cosd + sina*sind)
 
             lowerbounddists = np.clip(self.r1pr2 - 2*self.r1tr2*cosdm, 0., np.inf)
-            lowerperm = lap(lowerbounddists.copy())[0]
+            lowerperm = lap(lowerbounddists.copy())
             self.lowerbound = sqrt(sum(lowerbounddists[i,j] for i,j in enumerate(lowerperm)))
 
             if self.lowerbound < bestupper:
-                upperperm = lap(dists)[0]
+                upperperm = lap(dists)
                 self.upperbound = norm(self.pos1 - rpos2[upperperm])
             else:
                 upperperm = lowerperm
@@ -292,7 +300,7 @@ class BranchnBoundAlignment(object):
         self.Natoms = sum(map(len,perm))
         self.perm = perm
         self.nperm = len(perm)
-        self.npermsize = map(len, perm)
+        self.npermsize = list(map(len, perm))
         self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
         self.gopermdist.setperm(self.Natoms, self.permgroup, self.npermsize)
 
@@ -332,7 +340,7 @@ class BranchnBoundAlignment(object):
             width = 2*pi
         self.gopermdist.addnode(np.zeros(3),width,1,bestupper,True)
         if self.bulk and self.invert:
-            for i in xrange(2,49):
+            for i in range(2,49):
                 self.gopermdist.addnode(np.zeros(3),width,i,bestupper,force)
         elif self.invert:
             self.gopermdist.addnode(np.zeros(3),width,2,bestupper,force)
@@ -363,7 +371,7 @@ if __name__ == "__main__":
     def readFile(filename):
         with open(filename, 'rb') as f:
             reader = csv.reader(f, delimiter=' ')
-            dist = [map(float, row) for row in reader]
+            dist = [list(map(float, row)) for row in reader]
         return np.array(dist)
 
     datafolder = "../examples/LJ38"
@@ -383,12 +391,12 @@ if __name__ == "__main__":
         bnbcluster = BranchnBoundAlignment()
         dcluster, coordsb, coordsa, rmat = bnbcluster(pos1, pos2, debug=debug, niter=100)
 
-    print 'Cluster alignment:'
-    print 'On example LJ38 data, distance should = 1.4767'
+    print('Cluster alignment:')
+    print('On example LJ38 data, distance should = 1.4767')
     if not f90.have_libbnb:
-        print 'Branch and bound python alignment: ', dpyclus
+        print(('Branch and bound python alignment: ', dpyclus))
     if f90.have_libbnb:
-        print 'Branch and bound Fortran alignment: ', dcluster
+        print(('Branch and bound Fortran alignment: ', dcluster))
 
     if f90.have_libbnb and periodic:
         datafolder = "../examples/BLJ256"
@@ -405,9 +413,9 @@ if __name__ == "__main__":
 
         dbulk, coordsab, coordsa = bnbbulk(pos1, pos2, debug=debug, niter=50)
 
-        print '\nPeriodic alignment:'
-        print 'On example BLJ256 data, distance should = 1.559'
-        print 'Branch and bound alignment: ', dbulk
+        print('\nPeriodic alignment:')
+        print('On example BLJ256 data, distance should = 1.559')
+        print(('Branch and bound alignment: ', dbulk))
 
         # Testing for octahderal symetries will take ~48 times longer!
 
@@ -415,4 +423,4 @@ if __name__ == "__main__":
             bnbbulk = BranchnBoundAlignment(boxSize=boxSize)
             dbulk, coordsab, coordsa = bnbbulk(pos1, pos2.dot([[0,1,0],[1,0,0],[0,0,1]]),
                                                debug=False, niter=2000, invert=True)
-            print "Octahedral alignment: ", dbulk
+            print(("Octahedral alignment: ", dbulk))

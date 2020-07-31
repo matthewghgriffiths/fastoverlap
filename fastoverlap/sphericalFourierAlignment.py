@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-from itertools import izip
+
 
 from scipy import (sin, cos, sqrt, pi, exp, arange, zeros, float32)
 from numpy.linalg import norm
@@ -12,12 +12,12 @@ except ImportError:
     from scipy.misc import factorial
 from scipy.optimize import minimize, brentq
 
-from utils import find_best_permutation, EulerM, coeffs_harmonicBasis,\
+from .utils import find_best_permutation, EulerM, coeffs_harmonicBasis,\
 findMax, findPeaks, findrotation, eval_grad_jacobi, calcThetaPhiR
     
-from soft import SOFT
+from .soft import SOFT
 
-from sphericalAlignment import BaseSphericalAlignment, SphericalAlign,\
+from .sphericalAlignment import BaseSphericalAlignment, SphericalAlign,\
     SphericalHarmonicAlign
 
 def spherical_jn(n, z):
@@ -29,8 +29,8 @@ def spherical_jn_zeros(n,nt):
   points = arange(1,nt+n+1)*pi
   racines = zeros(nt+n, dtype=float32)
   Jn = lambda r, n: spherical_jn(n, r)
-  for i in xrange(1,n+1):
-    for j in xrange(nt+n-i):
+  for i in range(1,n+1):
+    for j in range(nt+n-i):
       foo = brentq(Jn, points[j], points[j+1], (i,))
       racines[j] = foo
     points = racines
@@ -93,7 +93,7 @@ class SphericalFourierAlign(BaseSphericalAlignment):
         if invert:
             c2nlms = (c2*(-1)**self.J[None,:,None] for c2 in c2nlms)
         return sum( np.einsum("nlm,nlo->lmo", c1, c2.conj())
-                    for c1, c2 in izip(c1nlms, c2nlms))
+                    for c1, c2 in zip(c1nlms, c2nlms))
     
     def alignGroup(self, coords, keepCoords=False):
         n = len(coords)
@@ -101,8 +101,8 @@ class SphericalFourierAlign(BaseSphericalAlignment):
             aligned = np.empty((2, n, n) + coords[0].shape)
         coeffs = [[self.calcHarmCoeff(p)] for p in coords]
         dists = np.zeros((n, n))
-        for i, (pos1, c1) in enumerate(izip(coords, coeffs)):
-            for j, (pos2, c2) in enumerate(izip(coords, coeffs)):
+        for i, (pos1, c1) in enumerate(zip(coords, coeffs)):
+            for j, (pos2, c2) in enumerate(zip(coords, coeffs)):
                 calcCoeffs = lambda b: self.calcSO3Harm(c1, c2, b)
                 dist, x1, x2 = self.align(pos1, pos2, calcCoeffs=calcCoeffs)[:3]
                 if keepCoords:
@@ -131,7 +131,7 @@ datafolder = "../examples/LJ38"
 def readFile(filename):
     with open(filename, 'rb') as f:
         reader = csv.reader(f, delimiter=' ')
-        dist = [map(float, row) for row in reader]
+        dist = [list(map(float, row)) for row in reader]
     return np.array(dist)
 
 pos1 = readFile(os.path.join(datafolder, 'coords'))
@@ -166,5 +166,5 @@ fIlmm = np.einsum("lmn,lon->lmo", c1lmn, c2lmn.conj())
 
 fIlmm *= norm(Ilmm)/norm(fIlmm)
 
-print norm(Ilmm-hIlmm)
+print((norm(Ilmm-hIlmm)))
 

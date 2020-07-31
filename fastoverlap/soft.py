@@ -54,9 +54,9 @@ class SOFT(object):
         self.a = pi/bw * self.bws
         self.b = pi/4/bw * (2*self.bws+1)
         self.y = pi/bw * self.bws
-        self.Js, self.m1s, self.m2s = map(np.array, zip(*[(l,m1,m2) for l in xrange(self.Jmax+1) 
-                                         for m1 in xrange(-l, l+1) 
-                                         for m2 in xrange(-l, l+1)]))
+        self.Js, self.m1s, self.m2s = list(map(np.array, list(zip(*[(l,m1,m2) for l in range(self.Jmax+1) 
+                                         for m1 in range(-l, l+1) 
+                                         for m2 in range(-l, l+1)]))))
         self.Ds = self.calcWignerMatrices()
         self.indFactor = np.array([2*pi/self.n, pi/self.n, 2*pi/self.n])
     ##
@@ -106,8 +106,8 @@ class SOFT(object):
         S1 =  np.fft.fft(data, axis=0)
         S2 = np.fft.fft(S1, axis=2) * (2.*bw)**-2
         flmm = np.zeros((bw, bw*2 - 1, bw*2 - 1), np.complex128)
-        for m1 in xrange(-Jmax,Jmax+1):
-            for m2 in xrange(-Jmax,Jmax+1):
+        for m1 in range(-Jmax,Jmax+1):
+            for m2 in range(-Jmax,Jmax+1):
                 l = max(np.abs([m1,m2]))
                 flmm[l:,m1,m2] = self.Ds[l:,m1,m2].dot(self.weights*S2[m1,:,m2])
         return flmm
@@ -117,8 +117,8 @@ class SOFT(object):
         bw=self.bw
         assert flmm.shape == (bw, bw*2 - 1, bw*2 - 1)
         S2out = np.zeros((2*bw,2*bw,2*bw), np.complex128)
-        for m1 in xrange(-Jmax,Jmax+1):
-            for m2 in xrange(-Jmax,Jmax+1):
+        for m1 in range(-Jmax,Jmax+1):
+            for m2 in range(-Jmax,Jmax+1):
                 l = max(np.abs([m1,m2]))
                 S2out[m1,:,m2] = self.Ds[l:,m1,m2].T.dot(flmm[l:,m1,m2])
         S1out = np.fft.ifft(S2out, axis=2)

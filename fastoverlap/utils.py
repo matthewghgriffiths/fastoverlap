@@ -4,7 +4,7 @@ Created on Wed Feb 15 19:06:01 2017
 
 @author: mg542
 """
-from itertools import izip
+
 from heapq import heappop, heappush
 
 import numpy as np
@@ -20,6 +20,7 @@ except ImportError:
 
 
 from scipy.optimize import curve_fit
+from scipy.spatial.distance import cdist
 
 """
 Tries to import code from pele:
@@ -30,8 +31,20 @@ Source Code: https://github.com/pele-python/pele
 If it can't import the code from pele, manually redefine needed functions
 these functions are direct copies from pele
 """
+try:
+    import munkres
+    hungarian = munkres.Munkres().compute
 
-
+    def lap(cost):
+        """Solve Linear Assignment problem
+        """
+        return [pair[1] for pair in sorted(hungarian(cost))]
+except:
+    def lap(cost):
+        """Solve Linear Assignment problem
+        """
+        raise NotImplementedError
+        
 
 try:
     from pele.mindist.rmsfit import findrotation
@@ -39,7 +52,9 @@ try:
     
 except ImportError:
     
-    import hungarian
+    import munkres
+    hungarian = munkres.Munkres().compute
+    
     def _make_cost_matrix(X1, X2):
         """
         return the cost matrix for use in the hungarian algorithm.
@@ -47,8 +62,7 @@ except ImportError:
         the cost matrix is the distance matrix (squared) for all atoms 
         in atomlist
         """
-        cost = (((X1[np.newaxis,:] - X2[:,np.newaxis,:])**2).sum(2))
-        return cost
+        return cdist(X1, X2, 'sqeuclidean')
     
     def find_permutations_hungarian( X1, X2, 
                                     make_cost_matrix=_make_cost_matrix ):
@@ -56,8 +70,7 @@ except ImportError:
         #########################################
         # run the hungarian algorithm
         #########################################
-        newind1 = hungarian.lap(cost)
-        perm = newind1[1]
+        perm = lap(cost)
         #########################################
         # apply the permutation
         #########################################
@@ -133,9 +146,9 @@ except ImportError:
             X2 = X2.reshape([-1,3])
         
         if permlist is None:
-            permlist = [range(len(X1))]
+            permlist = [list(range(len(X1)))]
         
-        newperm = range(len(X1))
+        newperm = list(range(len(X1)))
         disttot = 0.
         
         for atomlist in permlist:
@@ -147,7 +160,7 @@ except ImportError:
                 dist, perm = find_permutations_hungarian(X1[atomlist], X2[atomlist], make_cost_matrix=user_cost_matrix, **kwargs)
 
             disttot += dist**2
-            for atom, i in zip(atomlist,xrange(len(atomlist))):
+            for atom, i in zip(atomlist,list(range(len(atomlist)))):
                 newperm[atom] = atomlist[perm[i]]
         dist = sqrt(disttot)
         return dist, newperm
@@ -186,7 +199,7 @@ except ImportError:
         # Create matrix QMAT
         #########################################
         QMAT = np.zeros([4,4], np.float64)
-        for J1 in xrange(natoms):
+        for J1 in range(natoms):
             J2 = 3* J1 -1
             XM = x1[J2+1] - x2[J2+1]
             YM = x1[J2+2] - x2[J2+2]
@@ -228,7 +241,7 @@ except ImportError:
             if abs(eigmin) < 1e-6:
                 eigmin = 0.
             else:
-                print 'minDist> WARNING minimum eigenvalue is ',eigmin,' change to absolute value'
+                print(('minDist> WARNING minimum eigenvalue is ',eigmin,' change to absolute value'))
                 eigmin = -eigmin
         #
         dist = sqrt(eigmin) # this is the minimized distance between the two structures
@@ -311,11 +324,11 @@ def findMax(a):
     shape = a.shape
     dim = len(shape)
     ind = np.unravel_index(a.argmax(), a.shape)
-    i1 = tuple(tuple((i0+1)%shape[i] if i==j else i0 for j in xrange(dim))
+    i1 = tuple(tuple((i0+1)%shape[i] if i==j else i0 for j in range(dim))
                for i, i0 in enumerate(ind))
-    i2 = tuple(tuple(i0 for j in xrange(dim))
+    i2 = tuple(tuple(i0 for j in range(dim))
                for i, i0 in enumerate(ind))
-    i3 = tuple(tuple(i0-1 if i==j else i0 for j in xrange(dim))
+    i3 = tuple(tuple(i0-1 if i==j else i0 for j in range(dim))
                for i, i0 in enumerate(ind))
     y1 = np.abs(a[i1])
     y2 = np.abs(a[i2])
@@ -340,11 +353,11 @@ def _gaussian(x, A, mu, *alphax0):
 
 def fitPeak(f, ind, n=2):
     dim = len(f.shape)
-    peak = f[np.ix_(*[np.arange(i-n,i+n+1)%s for i,s in izip(ind,f.shape)])]
+    peak = f[np.ix_(*[np.arange(i-n,i+n+1)%s for i,s in zip(ind,f.shape)])]
     flatindices = np.indices((2*n+1,)*dim).reshape((dim,-1))
     flatpeak = peak.flatten()
     p0 = ([peak[(n,)*dim], 0.] + 
-          [1. if i==j else 0. for i in xrange(dim) for j in xrange(i, dim)] + 
+          [1. if i==j else 0. for i in range(dim) for j in range(i, dim)] + 
           [0.]*dim)
     popt, pcov = curve_fit(_gaussian, flatindices-n, flatpeak, p0=p0)
     return popt, pcov                   
@@ -359,7 +372,7 @@ def findPeaks(a, npeaks=10, width=2):
     amplitude = []
     mean = []
     sigma = []
-    for i in xrange(npeaks):
+    for i in range(npeaks):
         ind = multiargmax(f)
         try:
             popt = fitPeak(f, ind, width)[0]
@@ -386,7 +399,7 @@ def eval_grad_jacobi(n, alpha, beta, x, out=None):
     return eval_jacobi(n-1, alpha+1, beta+1, x, out) * fact
     
 def BruteOverlap(pos1, pos2, scale):
-    pos2, pos1 = map(np.atleast_2d, sorted([pos2, pos1], key=len))
+    pos2, pos1 = list(map(np.atleast_2d, sorted([pos2, pos1], key=len)))
     inds = np.indices((len(pos1),len(pos2))).reshape((2,-1))
     rs = norm(pos1[inds[0]]-pos2[inds[1]], axis=1)
     return exp(-rs**2 / 4 / scale**2).sum() * (pi * scale**2)**(1.5)

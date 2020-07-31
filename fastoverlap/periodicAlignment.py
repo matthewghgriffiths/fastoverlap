@@ -4,15 +4,15 @@ Created on 19 Jan 2017
 @author: mg542
 '''
 
-from itertools import product, combinations_with_replacement, chain, izip
+from itertools import product, combinations_with_replacement, chain
 
 import numpy as np
 from numpy.linalg import norm
 from scipy import median
 
-from utils import find_best_permutation, findMax, _next_fast_len, findPeaks
+from .utils import find_best_permutation, findMax, _next_fast_len, findPeaks
 
-import f90
+from . import f90
 if f90.have_fastbulk:
     fastbulk = f90.fastbulk
 
@@ -253,7 +253,7 @@ class FourierAlign(BasePeriodicAlignment):
                 ret.extend(extend)
             return ret
         indices =  list(chain(*(negIndices(setindex(combin)) for r in range(1,p+1)
-                                for combin in combinations_with_replacement(range(n), r))))
+                                for combin in combinations_with_replacement(list(range(n)), r))))
         return indices
     @classmethod
     def removeDuplicates(cls, disps, tol, *args):
@@ -284,7 +284,7 @@ class FourierAlign(BasePeriodicAlignment):
         self.splits = np.diff(self.absps).nonzero()[0]+1
         self.psplit = np.split(self.ps, self.splits)
         maxp = int(np.ceil(self.absps.max()))
-        self.startDisps = np.array(list(product(*[xrange(-maxp, maxp+1)]*self.dim)),dtype=float)
+        self.startDisps = np.array(list(product(*[list(range(-maxp, maxp+1))]*self.dim)),dtype=float)
         self.startDisps *= 0.5 * self.boxvec[None,:] / self.absps.max()
     ##
     def FourierShift(self, pos1, pos2):
@@ -314,7 +314,7 @@ class FourierAlign(BasePeriodicAlignment):
         ## Estimating distribution of displacement vector
         nk = len(self.ks)
         Fs = [2*(np.abs(absC1[i*nk:(i+1)*nk] - absC2[i*nk:(i+1)*nk])).mean()+1e-6
-             for i in xrange(nperm)]
+             for i in range(nperm)]
         std = np.concatenate([F*(norm(self.ps,axis=1)**-3.+1.)
                               for F in Fs])
         absC1C2 = 2*(absC1**-1+absC2**-1)**-1
@@ -368,7 +368,7 @@ class PeriodicAlign(BasePeriodicAlignment):
         if permlist is None:
             self.perm = [np.arange(self.Natoms)]
         else:
-            self.perm = map(np.array, permlist)
+            self.perm = list(map(np.array, permlist))
         self.pos1 = np.zeros((self.Natoms, self.dim))
         self.pos2 = np.zeros((self.Natoms, self.dim))
 
@@ -400,7 +400,7 @@ class PeriodicAlign(BasePeriodicAlignment):
     def calcFourierCoeff(self, pos, out=None):
         if out is None:
             out = np.empty((len(self.perm),)+self.absks.shape, dtype=complex)
-        for p, C in izip(self.perm, out):
+        for p, C in zip(self.perm, out):
             np.exp(-1j * np.tensordot(pos[p,:], self.ks, [1,0])).sum(0, out=C)
             # C[(self.n,)*self.dim] = 0
         return out
@@ -465,8 +465,8 @@ class PeriodicAlign(BasePeriodicAlignment):
             aligned = np.empty((2, n, n, self.Natoms, self.dim))
         coeffs = [self.calcFourierCoeff(p) for p in coords]
         dists = np.zeros((n, n))
-        for i, (pos1, c1) in enumerate(izip(coords, coeffs)):
-            for j, (pos2, c2) in enumerate(izip(coords, coeffs)):
+        for i, (pos1, c1) in enumerate(zip(coords, coeffs)):
+            for j, (pos2, c2) in enumerate(zip(coords, coeffs)):
                 dist, x1, x2 = self.align(pos1, pos2, [c1,c2],
                                           npeaks, width)[:3]
                 if keepCoords:
@@ -511,7 +511,7 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
         if len(perm):
             self.perm = perm
             self.nperm = len(perm)
-            self.npermsize = map(len, perm)
+            self.npermsize = list(map(len, perm))
             self.permgroup = np.concatenate([np.asanyarray(p)+1
                                              for p in perm])
             self.Natoms = len(self.permgroup)
@@ -606,7 +606,7 @@ class PeriodicAlignFortran(BasePeriodicAlignment):
 
 
 if __name__ == "__main__":
-    print 'testing alignment on example data, distance should = 1.559'
+    print('testing alignment on example data, distance should = 1.559')
     import os
     import csv
     datafolder = "../examples/BLJ256"
@@ -614,7 +614,7 @@ if __name__ == "__main__":
     def readFile(filename):
         with open(filename, 'rb') as f:
             reader = csv.reader(f, delimiter=' ')
-            dist = [map(float, row) for row in reader]
+            dist = [list(map(float, row)) for row in reader]
         return np.array(dist)
 
     pos1 = readFile(os.path.join(datafolder, 'coords'))
@@ -630,18 +630,18 @@ if __name__ == "__main__":
     if f90.have_fortran:
         overlap_f = PeriodicAlignFortran(256, boxSize, perm=permlist)
 
-    print 'PeriodicAlign aligment:', overlap(pos1, pos2)[0]
+    print(('PeriodicAlign aligment:', overlap(pos1, pos2)[0]))
     if f90.have_fortran:
-        print 'PeriodicAlignFortran aligment:', overlap_f(pos1, pos2)[0]
+        print(('PeriodicAlignFortran aligment:', overlap_f(pos1, pos2)[0]))
 
 
 if False:
     import timeit
-    print 'Timing python implementation'
-    print timeit.timeit("overlap(pos1, pos2)",
-                        setup="from __main__ import overlap, pos1, pos2")
+    print('Timing python implementation')
+    print((timeit.timeit("overlap(pos1, pos2)",
+                        setup="from __main__ import overlap, pos1, pos2")))
     if have_fortran:
-        print 'Timing Fortran implementation'
-        print timeit.timeit("overlap_f.align(pos1, pos2,1)",
+        print('Timing Fortran implementation')
+        print((timeit.timeit("overlap_f.align(pos1, pos2,1)",
                             setup=
-                            "from __main__ import overlap_f, pos1, pos2")
+                            "from __main__ import overlap_f, pos1, pos2")))

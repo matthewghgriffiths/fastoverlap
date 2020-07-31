@@ -6,7 +6,7 @@ Created on Sun Feb 12 16:15:14 2017
 """
 
 import numpy as np
-from itertools import izip
+
 
 from numpy import sin, cos, sqrt, pi, exp
 from numpy.linalg import norm
@@ -17,12 +17,12 @@ except ImportError:
     from scipy.misc import factorial
 from scipy.optimize import minimize
 
-from utils import find_best_permutation, EulerM, coeffs_harmonicBasis,\
+from .utils import find_best_permutation, EulerM, coeffs_harmonicBasis,\
 findMax, findPeaks, findrotation, eval_grad_jacobi, calcThetaPhiR
 
-from soft import SOFT
+from .soft import SOFT
 
-import f90
+from . import f90
 if f90.have_fastclusters:
     fastclusters = f90.fastclusters
 
@@ -37,7 +37,7 @@ class BaseSphericalAlignment(object):
         triu = np.triu_indices(len(pos), 1)
         dists = np.linalg.norm(pos[triu[0]] - pos[triu[1]],axis=1)
         closest = sum(dists[np.logical_or(triu[0]==i,triu[1]==i)].min()
-                      for i in xrange(len(pos)))
+                      for i in range(len(pos)))
         return closest/len(pos)
 
     ##
@@ -45,14 +45,14 @@ class BaseSphericalAlignment(object):
         self.Jmax = Jmax
         self.J = np.arange(Jmax+1)
         ## Needed for Spherical Harmonic Calcualtion
-        self.Jinds = np.array([j for j in xrange(Jmax+1) for _ in xrange(-j, j+1)])
-        self.Minds = np.array([m for j in xrange(Jmax+1) for m in xrange(-j, j+1)])
+        self.Jinds = np.array([j for j in range(Jmax+1) for _ in range(-j, j+1)])
+        self.Minds = np.array([m for j in range(Jmax+1) for m in range(-j, j+1)])
         self.soft = SOFT(Jmax+1)
         ## Needed for Wigner Matrix Calculation
-        self.Js, self.m1s, self.m2s = map(np.array,
-                                          zip(*[(l,m1,m2) for l in xrange(Jmax+1)
-                                                for m1 in xrange(-l, l+1)
-                                                for m2 in xrange(-l, l+1)]))
+        self.Js, self.m1s, self.m2s = list(map(np.array,
+                                          list(zip(*[(l,m1,m2) for l in range(Jmax+1)
+                                                for m1 in range(-l, l+1)
+                                                for m2 in range(-l, l+1)]))))
     ##
     def sphHarm(self, theta, phi):
         theta = np.atleast_1d(theta)
@@ -315,8 +315,8 @@ class SphericalHarmonicAlign(BaseSphericalAlignment):
     @classmethod
     def HarmCoeffs(cls, nmax, lmax, r0):
         coeffs = np.zeros((nmax+1, lmax+1, 2*nmax+lmax+1))
-        for n in xrange(nmax+1):
-            for l in xrange(lmax+1):
+        for n in range(nmax+1):
+            for l in range(lmax+1):
                 coeffs[n,l,:2*n+l+1] = coeffs_harmonicBasis(n,l,r0)
         return coeffs
     ##
@@ -369,7 +369,7 @@ class SphericalHarmonicAlign(BaseSphericalAlignment):
         if invert:
             c2nlms = (c2*(-1)**self.J[None,:,None] for c2 in c2nlms)
         return sum( np.einsum("nlm,nlo->lmo", c1.conj(), c2)
-                    for c1, c2 in izip(c1nlms, c2nlms))
+                    for c1, c2 in zip(c1nlms, c2nlms))
     ##
     def _align(self, pos1, pos2, perm=None, invert=True, cnlms=None):
         X1, X2 = self.COM_shift(pos1, pos2)
@@ -400,8 +400,8 @@ class SphericalHarmonicAlign(BaseSphericalAlignment):
             aligned = np.empty((2, n, n) + coords[0].shape)
         coeffs = [[self.calcHarmCoeff(p)] for p in coords]
         dists = np.zeros((n, n))
-        for i, (pos1, c1) in enumerate(izip(coords, coeffs)):
-            for j, (pos2, c2) in enumerate(izip(coords, coeffs)):
+        for i, (pos1, c1) in enumerate(zip(coords, coeffs)):
+            for j, (pos2, c2) in enumerate(zip(coords, coeffs)):
                 calcCoeffs = lambda b: self.calcSO3Harm(c1, c2, b)
                 dist, x1, x2 = self.align(pos1, pos2, calcCoeffs=calcCoeffs)[:3]
                 if keepCoords:
@@ -478,7 +478,7 @@ class SphericalAlignFortran(BaseSphericalAlignment):
         self.Natoms = sum(map(len,perm))
         self.perm = perm
         self.nperm = len(perm)
-        self.npermsize = map(len, perm)
+        self.npermsize = list(map(len, perm))
         self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
         self.fast.fastoverlaputils.setperm(self.Natoms, self.permgroup, self.npermsize)
     ##
@@ -568,7 +568,7 @@ class SphericalHarmonicAlignFortran(BaseSphericalAlignment):
         self.Natoms = sum(map(len,perm))
         self.perm = perm
         self.nperm = len(perm)
-        self.npermsize = map(len, perm)
+        self.npermsize = list(map(len, perm))
         self.permgroup = np.concatenate([np.asanyarray(p)+1 for p in perm])
         self.fast.fastoverlaputils.setperm(self.Natoms, self.permgroup, self.npermsize)
     ##
@@ -671,7 +671,7 @@ if __name__ == "__main__":
     def readFile(filename):
         with open(filename, 'rb') as f:
             reader = csv.reader(f, delimiter=' ')
-            dist = [map(float, row) for row in reader]
+            dist = [list(map(float, row)) for row in reader]
         return np.array(dist)
 
     pos1 = readFile(os.path.join(datafolder, 'coords'))
@@ -689,26 +689,26 @@ if __name__ == "__main__":
         soapf = SphericalAlignFortran(scale, Jmax)
         harmf = SphericalHarmonicAlignFortran(scale, Jmax=Jmax, harmscale=harmscale, nmax=Nmax)
 
-    print 'testing alignment on example LJ38 data, distance should = 1.4767'
-    print 'SphericalAlign                Alignment:', soap(pos1, pos2)[0]
-    print 'SphericalHarmonicAlign        Alignment:', harm(pos1, pos2)[0]
+    print('testing alignment on example LJ38 data, distance should = 1.4767')
+    print(('SphericalAlign                Alignment:', soap(pos1, pos2)[0]))
+    print(('SphericalHarmonicAlign        Alignment:', harm(pos1, pos2)[0]))
     if f90.have_fortran:
-        print 'SphericalAlignFortran         Alignment:', soapf(pos1, pos2)[0]
-        print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos1, pos2)[0]
+        print(('SphericalAlignFortran         Alignment:', soapf(pos1, pos2)[0]))
+        print(('SphericalHarmonicAlignFortran Alignment:', harmf(pos1, pos2)[0]))
 
-    print ''
-    print 'Checking inversion isomers'
+    print('')
+    print('Checking inversion isomers')
 
-    print 'SphericalAlign                Alignment:', soap(pos1, -pos2)[0]
-    print 'SphericalHarmonicAlign        Alignment:', harm(pos1, -pos2)[0]
+    print(('SphericalAlign                Alignment:', soap(pos1, -pos2)[0]))
+    print(('SphericalHarmonicAlign        Alignment:', harm(pos1, -pos2)[0]))
     if f90.have_fortran:
-        print 'SphericalAlignFortran         Alignment:', soapf(pos1, -pos2)[0]
-        print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos1, -pos2)[0]
+        print(('SphericalAlignFortran         Alignment:', soapf(pos1, -pos2)[0]))
+        print(('SphericalHarmonicAlignFortran Alignment:', harmf(pos1, -pos2)[0]))
 
     ###########################################################################
 
-    print ''
-    print 'testing alignment on randomly generated data, distance should ~ 0'
+    print('')
+    print('testing alignment on randomly generated data, distance should ~ 0')
     # Testing on synthetic data
     rot = np.random.random((3,)) * np.array([2*pi, pi, 2*pi])
     rotM = EulerM(*rot)
@@ -716,35 +716,35 @@ if __name__ == "__main__":
     pos3 -= pos3.mean(0)[None,:]
     pos4 = pos3.dot(rotM.T)
 
-    print 'SphericalAlign                Alignment:', soap(pos3, pos4)[0]
-    print 'SphericalHarmonicAlign        Alignment:', harm(pos3, pos4)[0]
+    print(('SphericalAlign                Alignment:', soap(pos3, pos4)[0]))
+    print(('SphericalHarmonicAlign        Alignment:', harm(pos3, pos4)[0]))
     if f90.have_fortran:
-        print 'SphericalAlignFortran         Alignment:', soapf(pos3, pos4)[0]
-        print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos3, pos4)[0]
+        print(('SphericalAlignFortran         Alignment:', soapf(pos3, pos4)[0]))
+        print(('SphericalHarmonicAlignFortran Alignment:', harmf(pos3, pos4)[0]))
 
-    print ''
-    print 'Checking inversion isomers'
+    print('')
+    print('Checking inversion isomers')
 
-    print 'SphericalAlign                Alignment:', soap(pos3, -pos4)[0]
-    print 'SphericalHarmonicAlign        Alignment:', harm(pos3, -pos4)[0]
+    print(('SphericalAlign                Alignment:', soap(pos3, -pos4)[0]))
+    print(('SphericalHarmonicAlign        Alignment:', harm(pos3, -pos4)[0]))
     if f90.have_fortran:
-        print 'SphericalAlignFortran         Alignment:', soapf(pos3, -pos4)[0]
-        print 'SphericalHarmonicAlignFortran Alignment:', harmf(pos3, -pos4)[0]
+        print(('SphericalAlignFortran         Alignment:', soapf(pos3, -pos4)[0]))
+        print(('SphericalHarmonicAlignFortran Alignment:', harmf(pos3, -pos4)[0]))
 
-    print ''
-    print 'Comparing rotation angles, Euler angles:'
-    print rot
-    print 'Rotation matrix:'
-    print rotM.T
+    print('')
+    print('Comparing rotation angles, Euler angles:')
+    print(rot)
+    print('Rotation matrix:')
+    print((rotM.T))
     soft = SOFT(Jmax+1)
     res = soap.calcSO3Coeffs(pos3, pos4)
     fout = soft.iSOFT(res).real
     R = soft.indtoEuler(findMax(fout))
-    print 'Euler angles from obtained from SOFT'
-    print R
+    print('Euler angles from obtained from SOFT')
+    print(R)
     if f90.have_fortran:
-        print 'Rotation matrix from minpermdist'
-        print soapf(pos3, -pos4)[3]
+        print('Rotation matrix from minpermdist')
+        print((soapf(pos3, -pos4)[3]))
 
 #if  __name__ == '__main__':
 #    scale = 0.3
