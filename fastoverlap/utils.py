@@ -44,6 +44,16 @@ except:
         """Solve Linear Assignment problem
         """
         raise NotImplementedError
+        
+
+def _make_cost_matrix(X1, X2):
+    """
+    return the cost matrix for use in the hungarian algorithm.
+
+    the cost matrix is the distance matrix (squared) for all atoms 
+    in atomlist
+    """
+    return cdist(X1, X2, 'sqeuclidean')
 
 try:
     from pele.mindist.rmsfit import findrotation
@@ -263,16 +273,6 @@ except ImportError:
         RMX[1, 2] = 2. * (Q3Q4 - Q1Q2)
         RMX[2, 1] = 2. * (Q3Q4 + Q1Q2)
         return RMX
-    
-
-def _make_cost_matrix(X1, X2):
-    """
-    return the cost matrix for use in the hungarian algorithm.
-
-    the cost matrix is the distance matrix (squared) for all atoms 
-    in atomlist
-    """
-    return cdist(X1, X2, 'sqeuclidean')
 
 
 def _next_fast_len(target):
