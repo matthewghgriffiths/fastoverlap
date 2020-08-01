@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
 
 try:
-    import fastbulk
+    import fastoverlap.f90.fastbulk
     have_fastbulk = True
 except ImportError:
     have_fastbulk = False
 
 try:
-    import fastclusters
+    import fastoverlap.f90.fastclusters
     have_fastclusters = True
 except ImportError:
     have_fastclusters = False
 
 try:
-    import libbnb
+    import fastoverlap.f90.libbnb
     have_libbnb = True
 except ImportError:
     have_libbnb = False
