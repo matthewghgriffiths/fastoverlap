@@ -10,6 +10,8 @@ Theory and Computation_ **2017** 13(10), 4914-4931, doi:[10.1021/acs.jctc.7b0054
 
 If you use this module, please cite the above paper.
 
+![Difference between FASTOVERLAP (maximising overlap) vs Branch and Bound Alignment (minimising RMSD)](./alignment.gif)
+
 ## INSTALLATION
 
 ## Required packages
