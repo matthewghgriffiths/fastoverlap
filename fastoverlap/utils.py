@@ -10,8 +10,7 @@ from heapq import heappop, heappush
 import numpy as np
 from numpy.linalg import norm
 from numpy import sin, cos, sqrt, pi, exp
-from scipy.special import eval_jacobi, gamma
-from scipy.special.orthogonal import genlaguerre, eval_genlaguerre
+from scipy.special import eval_jacobi, gamma, genlaguerre, eval_genlaguerre
 
 try:
     from scipy.special.basic import factorial, comb
